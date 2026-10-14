@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcode-select -p)",
+      "Bash(xcrun --version)",
+      "Bash(sw_vers)",
+      "Bash(mkdir *)",
+      "Bash(xcrun simctl *)",
+      "Bash(python3 -c ' *)",
+      "Bash(xcodebuild *)",
+      "Bash(echo \"Screenshot taken: $?\")",
+      "Bash(plutil -p -)"
+    ]
+  }
+}
