@@ -51,6 +51,10 @@ final class SpeechRecognizer: ObservableObject {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
 
+    // Accumulates text from segments that the recognizer has finalized (isFinal).
+    // Each pause causes iOS to commit a segment; we append rather than overwrite.
+    private var committedText: String = ""
+
     // AVAudioEngine owns the audio graph; inputNode is its microphone tap point.
     private let audioEngine = AVAudioEngine()
 
@@ -103,6 +107,7 @@ final class SpeechRecognizer: ObservableObject {
         // Tear down any previous session first.
         stopRecording()
         transcript = ""
+        committedText = ""
         errorMessage = nil
 
         // Step 1 — Configure the audio session.
@@ -114,27 +119,17 @@ final class SpeechRecognizer: ObservableObject {
         try session.setCategory(.record, mode: .measurement, options: .duckOthers)
         try session.setActive(true, options: .notifyOthersOnDeactivation)
 
-        // Step 2 — Create the recognition request.
-        //   SFSpeechAudioBufferRecognitionRequest is the streaming variant;
-        //   we feed it raw PCM buffers in real time (vs. a finished audio file).
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true   // live text updates as user speaks
-        request.requiresOnDeviceRecognition = true  // never leave the device
-        recognitionRequest = request
-
-        // Step 3 — Tap the microphone.
-        //   inputNode is AVAudioEngine's live microphone source.
-        //   We install a "tap" that fires every ~23 ms (at 1024 samples, 44 kHz).
-        //   Each buffer is handed straight to the recognition request.
+        // Step 2 — Tap the microphone.
+        //   The tap routes audio through self?.recognitionRequest so we can swap
+        //   the request when iOS finalizes a segment after a pause, without
+        //   stopping or restarting the audio engine.
         let inputNode = audioEngine.inputNode
         let format = inputNode.outputFormat(forBus: 0)
-
-        // Capture `request` directly — avoids touching self from the audio thread.
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            request.append(buffer)
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            self?.recognitionRequest?.append(buffer)
         }
 
-        // Step 4 — Start the audio engine.
+        // Step 3 — Start the audio engine.
         audioEngine.prepare()
         do {
             try audioEngine.start()
@@ -142,27 +137,71 @@ final class SpeechRecognizer: ObservableObject {
             throw SRError.audioEngineFailure(error)
         }
 
-        // Step 5 — Start the recognition task.
-        //   The closure is called whenever Apple's on-device model produces
-        //   a new hypothesis (partial) or a final result.
+        // Step 4 — Start the first recognition task. Subsequent segments after
+        //   pauses are handled inside beginRecognitionTask() automatically.
+        beginRecognitionTask()
+
+        isRecording = true
+    }
+
+    // Creates a fresh SFSpeechAudioBufferRecognitionRequest and recognition task.
+    // Called at start and again each time iOS commits a finalized segment.
+    // The audio tap stays live throughout — only the request object is swapped.
+    private func beginRecognitionTask() {
+        guard let recognizer, recognizer.isAvailable else { return }
+
+        recognitionTask?.cancel()
+        recognitionTask = nil
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = true
+        request.requiresOnDeviceRecognition = true
+        recognitionRequest = request
+
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             DispatchQueue.main.async {
+                guard let self else { return }
                 if let result {
-                    // bestTranscription is the highest-confidence hypothesis so far.
-                    self?.transcript = result.bestTranscription.formattedString
+                    if result.isFinal {
+                        // iOS has committed this utterance. Append it to the
+                        // accumulated text, then start a fresh task so the next
+                        // utterance also builds on top instead of overwriting.
+                        let segment = result.bestTranscription.formattedString
+                        if !segment.trimmingCharacters(in: .whitespaces).isEmpty {
+                            self.committedText = self.committedText.isEmpty
+                                ? segment
+                                : self.committedText + " " + segment
+                        }
+                        self.transcript = self.committedText
+                        self.recognitionRequest = nil
+                        self.beginRecognitionTask()
+                    } else {
+                        // Partial result — show committed text + live hypothesis.
+                        let live = result.bestTranscription.formattedString
+                        self.transcript = self.committedText.isEmpty
+                            ? live
+                            : self.committedText + " " + live
+                    }
                 }
                 if let error {
-                    // Code 1110 = "no speech detected" — normal during silence, not a fault.
-                    // Code 203 / 301 = task cancelled by us — also not a fault.
+                    // 1110 = no speech detected; 203/301 = task cancelled by us.
                     let code = (error as NSError).code
                     if code != 1110 && code != 203 && code != 301 {
-                        self?.errorMessage = error.localizedDescription
+                        self.errorMessage = error.localizedDescription
                     }
                 }
             }
         }
+    }
 
-        isRecording = true
+    /// Wipes everything the user has said so far and starts listening fresh.
+    func clearTranscript() {
+        committedText = ""
+        transcript = ""
+        if isRecording {
+            recognitionRequest = nil
+            beginRecognitionTask()
+        }
     }
 
     /// Signal end-of-audio, drain remaining results, tear down the engine.

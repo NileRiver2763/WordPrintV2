@@ -6,11 +6,15 @@ final class Session {
     var date: Date
     var duration: TimeInterval   // seconds actually recorded
     var transcript: String
+    var mood: String = ""
+    var emoji: String = ""
 
-    init(date: Date = .now, duration: TimeInterval, transcript: String) {
+    init(date: Date = .now, duration: TimeInterval, transcript: String, mood: String = "", emoji: String = "") {
         self.date = date
         self.duration = duration
         self.transcript = transcript
+        self.mood = mood
+        self.emoji = emoji
     }
 
     var formattedDuration: String {

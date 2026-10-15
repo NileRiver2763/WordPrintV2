@@ -18,6 +18,14 @@ enum FlowPhase {
 // MARK: - CheckInFlowView
 // ─────────────────────────────────────────────────────────────────────────────
 
+private let flowMoods: [MoodOption] = [
+    MoodOption(emoji: "😄", label: "Great", color: Color(red: 0.10, green: 0.73, blue: 0.53)),
+    MoodOption(emoji: "🙂", label: "Good",  color: Color(red: 0.15, green: 0.52, blue: 0.83)),
+    MoodOption(emoji: "😐", label: "Okay",  color: Color(red: 0.91, green: 0.52, blue: 0.14)),
+    MoodOption(emoji: "😔", label: "Low",   color: Color(red: 0.42, green: 0.25, blue: 0.82)),
+    MoodOption(emoji: "😴", label: "Tired", color: Color(red: 0.58, green: 0.28, blue: 0.58)),
+]
+
 struct CheckInFlowView: View {
     @Environment(\.modelContext) private var modelContext
     @StateObject private var speech = SpeechRecognizer()
@@ -25,6 +33,7 @@ struct CheckInFlowView: View {
     @State private var phase: FlowPhase = .welcome
     @State private var secondsElapsed: Int = 0
     @State private var sessionTimer: Timer?
+    @State private var selectedMood: MoodOption?
 
     private let maxSeconds = 60
 
@@ -74,12 +83,57 @@ struct CheckInFlowView: View {
             .padding(.top, 32)
             .padding(.horizontal, 24)
 
+            moodPickerRow
+                .padding(.top, 24)
+
             Spacer()
 
             startButton
                 .padding(.horizontal, 24)
                 .padding(.bottom, 40)
         }
+    }
+
+    private var moodPickerRow: some View {
+        VStack(spacing: 10) {
+            Text("How are you feeling?")
+                .font(.subheadline.bold())
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 0) {
+                ForEach(flowMoods) { mood in
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.65)) {
+                            selectedMood = (selectedMood?.id == mood.id) ? nil : mood
+                        }
+                    } label: {
+                        VStack(spacing: 4) {
+                            Text(mood.emoji)
+                                .font(.system(size: 30))
+                                .frame(width: 50, height: 50)
+                                .background(
+                                    selectedMood?.id == mood.id
+                                        ? mood.color.opacity(0.18)
+                                        : Color(.tertiarySystemGroupedBackground)
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                                .overlay {
+                                    if selectedMood?.id == mood.id {
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .strokeBorder(mood.color, lineWidth: 2.5)
+                                    }
+                                }
+                            Text(mood.label)
+                                .font(.caption.bold())
+                                .foregroundStyle(selectedMood?.id == mood.id ? mood.color : .secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.horizontal, 24)
     }
 
     private var startButton: some View {
@@ -213,6 +267,20 @@ struct CheckInFlowView: View {
                 .frame(width: 90, height: 90)
                 .padding(.top, 20)
 
+            if let mood = selectedMood {
+                HStack(spacing: 8) {
+                    Text(mood.emoji).font(.title3)
+                    Text(mood.label)
+                        .font(.callout.bold())
+                        .foregroundStyle(mood.color)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(mood.color.opacity(0.12))
+                .clipShape(Capsule())
+                .padding(.top, 6)
+            }
+
             // Live transcript card
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
@@ -220,6 +288,22 @@ struct CheckInFlowView: View {
                     Text("Live Transcript")
                         .font(.headline.bold())
                         .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        speech.clearTranscript()
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(speech.transcript.isEmpty ? Color(.tertiaryLabel) : .red)
+                            .frame(width: 36, height: 36)
+                            .background(
+                                speech.transcript.isEmpty
+                                    ? Color(.tertiarySystemGroupedBackground)
+                                    : Color.red.opacity(0.10)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    }
+                    .accessibilityLabel("Clear transcript")
                 }
 
                 ScrollViewReader { proxy in
@@ -282,6 +366,14 @@ struct CheckInFlowView: View {
             VStack(spacing: 10) {
                 Text("Check-in Saved!")
                     .font(.system(size: 32, weight: .bold, design: .rounded))
+                if let mood = selectedMood {
+                    HStack(spacing: 8) {
+                        Text(mood.emoji).font(.title2)
+                        Text(mood.label)
+                            .font(.title2.bold())
+                            .foregroundStyle(mood.color)
+                    }
+                }
                 let s = Int(duration)
                 Text("You spoke for \(s / 60):\(String(format: "%02d", s % 60))")
                     .font(.title2)
@@ -312,6 +404,7 @@ struct CheckInFlowView: View {
 
             Button {
                 secondsElapsed = 0
+                selectedMood = nil
                 phase = .welcome
             } label: {
                 Text("Done")
@@ -391,7 +484,12 @@ struct CheckInFlowView: View {
         let duration = TimeInterval(secondsElapsed)
         speech.stopRecording()
 
-        let session = Session(duration: duration, transcript: speech.transcript)
+        let session = Session(
+            duration: duration,
+            transcript: speech.transcript,
+            mood: selectedMood?.label ?? "",
+            emoji: selectedMood?.emoji ?? ""
+        )
         modelContext.insert(session)
         try? modelContext.save()
 

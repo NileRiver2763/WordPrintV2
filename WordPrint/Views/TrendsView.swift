@@ -266,8 +266,14 @@ struct SessionRow: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack {
-                    Text("Voice Check-in")
-                        .font(.title3.bold())
+                    if !session.emoji.isEmpty {
+                        Text(session.emoji).font(.title3)
+                        Text(session.mood.isEmpty ? "Voice Check-in" : session.mood)
+                            .font(.title3.bold())
+                    } else {
+                        Text("Voice Check-in")
+                            .font(.title3.bold())
+                    }
                     Spacer()
                     Text(session.formattedDuration)
                         .font(.callout.bold())
