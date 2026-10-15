@@ -17,6 +17,7 @@
 		BB000009 /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000A /* Session.swift */; };
 		BB00000A /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000B /* SpeechRecognizer.swift */; };
 		BB00000B /* CheckInFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000C /* CheckInFlowView.swift */; };
+		BB00000C /* FingerprintEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000D /* FingerprintEngine.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +33,7 @@
 		AA00000A /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		AA00000B /* SpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizer.swift; sourceTree = "<group>"; };
 		AA00000C /* CheckInFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInFlowView.swift; sourceTree = "<group>"; };
+		AA00000D /* FingerprintEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintEngine.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -99,6 +101,7 @@
 			isa = PBXGroup;
 			children = (
 				AA00000B /* SpeechRecognizer.swift */,
+				AA00000D /* FingerprintEngine.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -181,6 +184,7 @@
 				BB000005 /* TrendsView.swift in Sources */,
 				BB000006 /* AboutView.swift in Sources */,
 				BB00000A /* SpeechRecognizer.swift in Sources */,
+				BB00000C /* FingerprintEngine.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
