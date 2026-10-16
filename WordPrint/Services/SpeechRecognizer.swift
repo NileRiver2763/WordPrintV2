@@ -55,6 +55,10 @@ final class SpeechRecognizer: ObservableObject {
     // Each pause causes iOS to commit a segment; we append rather than overwrite.
     private var committedText: String = ""
 
+    // Latest uncommitted hypothesis, and a counter that invalidates stale task callbacks.
+    private var lastPartial: String = ""
+    private var taskGeneration: Int = 0
+
     // AVAudioEngine owns the audio graph; inputNode is its microphone tap point.
     private let audioEngine = AVAudioEngine()
 
@@ -108,6 +112,7 @@ final class SpeechRecognizer: ObservableObject {
         stopRecording()
         transcript = ""
         committedText = ""
+        lastPartial = ""
         errorMessage = nil
 
         // Step 1 — Configure the audio session.
@@ -158,45 +163,81 @@ final class SpeechRecognizer: ObservableObject {
         request.requiresOnDeviceRecognition = true
         recognitionRequest = request
 
+        lastPartial = ""
+        let generation = taskGeneration &+ 1
+        taskGeneration = generation
+
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             DispatchQueue.main.async {
-                guard let self else { return }
+                // Ignore callbacks from tasks we've already replaced or cancelled.
+                guard let self, self.taskGeneration == generation, self.isRecording else { return }
+
                 if let result {
+                    let live = result.bestTranscription.formattedString
+
                     if result.isFinal {
-                        // iOS has committed this utterance. Append it to the
-                        // accumulated text, then start a fresh task so the next
-                        // utterance also builds on top instead of overwriting.
-                        let segment = result.bestTranscription.formattedString
-                        if !segment.trimmingCharacters(in: .whitespaces).isEmpty {
-                            self.committedText = self.committedText.isEmpty
-                                ? segment
-                                : self.committedText + " " + segment
-                        }
-                        self.transcript = self.committedText
-                        self.recognitionRequest = nil
-                        self.beginRecognitionTask()
-                    } else {
-                        // Partial result — show committed text + live hypothesis.
-                        let live = result.bestTranscription.formattedString
-                        self.transcript = self.committedText.isEmpty
-                            ? live
-                            : self.committedText + " " + live
+                        self.commit(live.isEmpty ? self.lastPartial : live)
+                        self.restartTask()
+                        return
                     }
+
+                    // After a pause the recognizer can silently start a new
+                    // utterance without isFinal: the text shrinks or no longer
+                    // extends the previous hypothesis. Commit the old one first
+                    // so it isn't overwritten.
+                    if !self.lastPartial.isEmpty, !live.isEmpty, !self.extends(live, self.lastPartial) {
+                        self.commit(self.lastPartial)
+                    }
+                    self.lastPartial = live
+                    self.transcript = self.committedText.isEmpty
+                        ? live
+                        : (live.isEmpty ? self.committedText : self.committedText + " " + live)
                 }
+
                 if let error {
                     // 1110 = no speech detected; 203/301 = task cancelled by us.
                     let code = (error as NSError).code
+                    // The task ended (timeout or silence). Keep what we heard
+                    // and keep listening.
+                    self.commit(self.lastPartial)
+                    self.transcript = self.committedText
                     if code != 1110 && code != 203 && code != 301 {
                         self.errorMessage = error.localizedDescription
                     }
+                    self.restartTask()
                 }
             }
         }
     }
 
+    // Appends a finished segment to the accumulated transcript.
+    private func commit(_ segment: String) {
+        let trimmed = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        committedText = committedText.isEmpty ? trimmed : committedText + " " + trimmed
+        lastPartial = ""
+        transcript = committedText
+    }
+
+    private func restartTask() {
+        recognitionRequest = nil
+        beginRecognitionTask()
+    }
+
+    // True if `new` is a continuation (possibly with corrections) of `old`
+    // rather than a fresh utterance.
+    private func extends(_ new: String, _ old: String) -> Bool {
+        let n = new.lowercased(), o = old.lowercased()
+        if n.hasPrefix(o) || o.hasPrefix(n) && n.count + 3 >= o.count { return true }
+        // Allow small revisions: compare the first few words.
+        let nw = n.split(separator: " ").prefix(2), ow = o.split(separator: " ").prefix(2)
+        return !nw.isEmpty && nw.elementsEqual(ow)
+    }
+
     /// Wipes everything the user has said so far and starts listening fresh.
     func clearTranscript() {
         committedText = ""
+        lastPartial = ""
         transcript = ""
         if isRecording {
             recognitionRequest = nil

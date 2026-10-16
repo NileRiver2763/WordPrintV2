@@ -9,6 +9,7 @@ private let trendsPurple  = Color(red: 0.56, green: 0.27, blue: 0.68)
 struct TrendsView: View {
     @Query(sort: \CheckIn.date, order: .reverse) private var checkIns: [CheckIn]
     @Query(sort: \Session.date, order: .reverse) private var sessions: [Session]
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         NavigationStack {
@@ -28,16 +29,55 @@ struct TrendsView: View {
     // MARK: - Content
 
     private var content: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                summaryBanner
-                if !checkIns.isEmpty { weekGrid }
-                if !sessions.isEmpty { sessionsSection }
-                if !checkIns.isEmpty { historySection }
+        List {
+            summaryBanner
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            if !checkIns.isEmpty {
+                weekGrid
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
             }
-            .padding(.top, 8)
-            .padding(.bottom, 40)
+            if !sessions.isEmpty {
+                Section {
+                    ForEach(sessions) { session in
+                        SessionRow(session: session)
+                            .padding(.vertical, 6)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    modelContext.delete(session)
+                                    try? modelContext.save()
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                    }
+                } header: {
+                    Text("Voice Check-ins").font(.title2.bold()).foregroundStyle(.primary).textCase(nil)
+                }
+            }
+            if !checkIns.isEmpty {
+                Section {
+                    ForEach(checkIns) { item in
+                        CheckInRow(checkIn: item)
+                            .padding(.vertical, 6)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    modelContext.delete(item)
+                                    try? modelContext.save()
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                    }
+                } header: {
+                    Text("All Check-ins").font(.title2.bold()).foregroundStyle(.primary).textCase(nil)
+                }
+            }
         }
+        .listStyle(.insetGrouped)
     }
 
     // MARK: - Summary Banner
@@ -123,52 +163,6 @@ struct TrendsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24))
         .padding(.horizontal, 16)
         .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
-    }
-
-    // MARK: - Voice Sessions
-
-    private var sessionsSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Voice Check-ins")
-                .font(.title2.bold())
-                .padding(.horizontal, 20)
-
-            VStack(spacing: 0) {
-                ForEach(sessions) { session in
-                    SessionRow(session: session)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                    Divider().padding(.leading, 76)
-                }
-            }
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 24))
-            .padding(.horizontal, 16)
-            .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
-        }
-    }
-
-    // MARK: - History
-
-    private var historySection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("All Check-ins")
-                .font(.title2.bold())
-                .padding(.horizontal, 20)
-
-            VStack(spacing: 0) {
-                ForEach(checkIns) { item in
-                    CheckInRow(checkIn: item)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
-                    Divider().padding(.leading, 92)
-                }
-            }
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 24))
-            .padding(.horizontal, 16)
-            .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
-        }
     }
 
     // MARK: - Empty State
