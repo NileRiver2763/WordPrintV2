@@ -181,7 +181,7 @@ extension Fingerprint {
         //           wordsPerMinute:    ...,
         //           meanSentenceLength: ...,
         //           pronounNounRatio:  ...
-        //       )
+        //       ) 
         return Fingerprint(
             typeTokenRatio:     (ttr   * 10000).rounded() / 10000,
             movingAverageTTR:   (msttr * 10000).rounded() / 10000,
