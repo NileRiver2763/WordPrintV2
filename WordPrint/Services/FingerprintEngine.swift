@@ -1,6 +1,16 @@
 import Foundation
 import NaturalLanguage
 
+/// Splits text into words, keeping apostrophes inside words so "don't" stays one
+/// token instead of becoming "don" and "t".
+private func tokenize(_ text: String) -> [String] {
+    let keep = CharacterSet.letters.union(CharacterSet(charactersIn: "'’"))
+    return text
+        .components(separatedBy: keep.inverted)
+        .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "'’")) }
+        .filter { !$0.isEmpty }
+}
+
 // ── Word sets ─────────────────────────────────
 
 private let vaguePronouns: Set<String> = [
@@ -69,9 +79,7 @@ extension Fingerprint {
         //       Hint: use .lowercased() then split on non-alpha characters.
         //       You'll use this [String] array for TTR, MSTTR, fillerRate, wordsPerMinute.
         let lower = transcript.lowercased()
-        let tokens = lower
-            .components(separatedBy: CharacterSet.letters.inverted)
-            .filter { !$0.isEmpty }
+        let tokens = tokenize(lower)
         
         let n = tokens.count
         
@@ -191,5 +199,133 @@ extension Fingerprint {
             meanSentenceLength: (msl   * 100).rounded()   / 100,
             pronounNounRatio:   (pnr   * 10000).rounded() / 10000
         )
+    }
+}
+
+// ── Baseline & drift ──────────────────────────
+
+/// The seven measurements in a Fingerprint, in a form we can loop over.
+enum FingerprintFeature: String, CaseIterable, Identifiable {
+    case typeTokenRatio, movingAverageTTR, vagueLanguageIndex, fillerRate
+    case wordsPerMinute, meanSentenceLength, pronounNounRatio
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .typeTokenRatio:     return "Word Variety"
+        case .movingAverageTTR:   return "Steady Word Variety"
+        case .vagueLanguageIndex: return "Vague Language"
+        case .fillerRate:         return "Filler Words"
+        case .wordsPerMinute:     return "Speaking Pace"
+        case .meanSentenceLength: return "Sentence Length"
+        case .pronounNounRatio:   return "Pronouns vs Nouns"
+        }
+    }
+
+    var unit: String {
+        switch self {
+        case .fillerRate:         return "per 100 words"
+        case .wordsPerMinute:     return "words/min"
+        case .meanSentenceLength: return "words"
+        default:                  return ""
+        }
+    }
+
+    func value(in f: Fingerprint) -> Double {
+        switch self {
+        case .typeTokenRatio:     return f.typeTokenRatio
+        case .movingAverageTTR:   return f.movingAverageTTR
+        case .vagueLanguageIndex: return f.vagueLanguageIndex
+        case .fillerRate:         return f.fillerRate
+        case .wordsPerMinute:     return f.wordsPerMinute
+        case .meanSentenceLength: return f.meanSentenceLength
+        case .pronounNounRatio:   return f.pronounNounRatio
+        }
+    }
+}
+
+struct FeatureBaseline {
+    let mean: Double
+    let sd: Double       // sample standard deviation (n − 1)
+}
+
+/// One check-in's fingerprint, with how far each feature sits from baseline.
+struct FingerprintPoint: Identifiable {
+    let id = UUID()
+    let date: Date
+    let fingerprint: Fingerprint
+    /// z-score per feature (nil if that feature has no usable baseline spread).
+    var zScores: [FingerprintFeature: Double] = [:]
+    /// True if this check-in was part of the baseline window.
+    var inBaseline: Bool = false
+}
+
+struct DriftAnalysis {
+    static let minCheckIns      = 3      // baseline appears after this many
+    static let minWords         = 15     // shorter transcripts are too noisy to score
+    static let zThreshold       = 1.5
+    static let featuresNeeded   = 3
+
+    var points: [FingerprintPoint] = []
+    var baseline: [FingerprintFeature: FeatureBaseline] = [:]
+    var baselineSize = 0
+    /// Features that moved the same way, beyond the threshold, in the latest two check-ins.
+    var shifted: [(feature: FingerprintFeature, higher: Bool)] = []
+
+    var hasBaseline: Bool { !baseline.isEmpty }
+    var isFlagged: Bool { shifted.count >= Self.featuresNeeded }
+
+    /// - Parameter sessions: voice check-ins in any order.
+    init(sessions: [Session]) {
+        let usable = sessions
+            .sorted { $0.date < $1.date }
+            .filter { Fingerprint.wordCount($0.transcript) >= Self.minWords }
+
+        points = usable.map {
+            FingerprintPoint(date: $0.date,
+                             fingerprint: Fingerprint.analyze(transcript: $0.transcript,
+                                                              durationSeconds: $0.duration))
+        }
+        guard points.count >= Self.minCheckIns else { return }
+
+        // Baseline = your earliest check-ins. It is frozen on purpose: if it kept
+        // updating, a slow drift would drag the baseline along with it and never
+        // look unusual. With 3–4 check-ins we use the first 3; from 5 on, the first 5.
+        baselineSize = points.count < 5 ? 3 : 5
+        let window = points.prefix(baselineSize)
+
+        for feature in FingerprintFeature.allCases {
+            let values = window.map { feature.value(in: $0.fingerprint) }
+            let mean = values.reduce(0, +) / Double(values.count)
+            let variance = values.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(values.count - 1)
+            let sd = variance.squareRoot()
+            // A flat baseline (sd ≈ 0) would turn tiny wobbles into huge z-scores.
+            if sd > 1e-9 { baseline[feature] = FeatureBaseline(mean: mean, sd: sd) }
+        }
+
+        for i in points.indices {
+            points[i].inBaseline = i < baselineSize
+            for (feature, b) in baseline {
+                points[i].zScores[feature] = (feature.value(in: points[i].fingerprint) - b.mean) / b.sd
+            }
+        }
+
+        // Compare only check-ins after the baseline window; need the last two.
+        guard points.count >= baselineSize + 2 else { return }
+        let last = points[points.count - 1], prev = points[points.count - 2]
+        for feature in FingerprintFeature.allCases {
+            guard let a = prev.zScores[feature], let b = last.zScores[feature] else { continue }
+            let t = Self.zThreshold
+            if (a > t && b > t) || (a < -t && b < -t) {
+                shifted.append((feature, b > 0))
+            }
+        }
+    }
+}
+
+extension Fingerprint {
+    static func wordCount(_ text: String) -> Int {
+        tokenize(text.lowercased()).count
     }
 }

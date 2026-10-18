@@ -58,6 +58,7 @@ final class SpeechRecognizer: ObservableObject {
     // Latest uncommitted hypothesis, and a counter that invalidates stale task callbacks.
     private var lastPartial: String = ""
     private var taskGeneration: Int = 0
+    private var consecutiveFailures = 0
 
     // AVAudioEngine owns the audio graph; inputNode is its microphone tap point.
     private let audioEngine = AVAudioEngine()
@@ -114,6 +115,7 @@ final class SpeechRecognizer: ObservableObject {
         committedText = ""
         lastPartial = ""
         errorMessage = nil
+        consecutiveFailures = 0
 
         // Step 1 — Configure the audio session.
         //   .record      = mic-only, no playback mixing
@@ -139,6 +141,8 @@ final class SpeechRecognizer: ObservableObject {
         do {
             try audioEngine.start()
         } catch {
+            // Remove the tap, otherwise the next attempt crashes installing a second one.
+            inputNode.removeTap(onBus: 0)
             throw SRError.audioEngineFailure(error)
         }
 
@@ -155,6 +159,7 @@ final class SpeechRecognizer: ObservableObject {
     private func beginRecognitionTask() {
         guard let recognizer, recognizer.isAvailable else { return }
 
+        recognitionRequest?.endAudio()
         recognitionTask?.cancel()
         recognitionTask = nil
 
@@ -174,6 +179,7 @@ final class SpeechRecognizer: ObservableObject {
 
                 if let result {
                     let live = result.bestTranscription.formattedString
+                    if !live.isEmpty { self.consecutiveFailures = 0 }
 
                     if result.isFinal {
                         self.commit(live.isEmpty ? self.lastPartial : live)
@@ -195,16 +201,25 @@ final class SpeechRecognizer: ObservableObject {
                 }
 
                 if let error {
-                    // 1110 = no speech detected; 203/301 = task cancelled by us.
+                    // 1110 = no speech detected (normal during silence);
+                    // 203/301 = task cancelled.
                     let code = (error as NSError).code
-                    // The task ended (timeout or silence). Keep what we heard
-                    // and keep listening.
+                    // The task ended (timeout or silence). Keep what we heard.
                     self.commit(self.lastPartial)
                     self.transcript = self.committedText
-                    if code != 1110 && code != 203 && code != 301 {
+
+                    let benign = code == 1110 || code == 203 || code == 301
+                    if !benign {
+                        self.consecutiveFailures += 1
                         self.errorMessage = error.localizedDescription
+                        // Don't spin forever if the recognizer keeps failing.
+                        if self.consecutiveFailures > 5 { return }
                     }
-                    self.restartTask()
+                    // Brief delay so a failing recognizer can't restart in a tight loop.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                        guard let self, self.isRecording, self.taskGeneration == generation else { return }
+                        self.restartTask()
+                    }
                 }
             }
         }

@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import Charts
 
 //Author: Neil Voore
 
@@ -10,6 +11,8 @@ struct TrendsView: View {
     @Query(sort: \CheckIn.date, order: .reverse) private var checkIns: [CheckIn]
     @Query(sort: \Session.date, order: .reverse) private var sessions: [Session]
     @Environment(\.modelContext) private var modelContext
+    // Cached: fingerprinting runs NLP over every transcript, so don't redo it on each redraw.
+    @State private var drift = DriftAnalysis(sessions: [])
 
     var body: some View {
         NavigationStack {
@@ -36,6 +39,12 @@ struct TrendsView: View {
                 .listRowSeparator(.hidden)
             if !checkIns.isEmpty {
                 weekGrid
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+            if !sessions.isEmpty {
+                speechPatternsSection
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
@@ -78,6 +87,67 @@ struct TrendsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .onChange(of: sessions.map(\.date), initial: true) {
+            drift = DriftAnalysis(sessions: sessions)
+        }
+    }
+
+    // MARK: - Speech Patterns
+
+    private var speechPatternsSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Speech Patterns")
+                .font(.title2.bold())
+                .padding(.horizontal, 20)
+
+            if !drift.hasBaseline {
+                let have = drift.points.count
+                let need = DriftAnalysis.minCheckIns - have
+                Text("Your personal baseline appears after \(DriftAnalysis.minCheckIns) voice check-ins of at least \(DriftAnalysis.minWords) words. \(have == 0 ? "Record" : "Record \(need) more") to get started.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 20)
+            } else {
+                if drift.isFlagged { driftNote(drift) }
+
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                    ForEach(FingerprintFeature.allCases) { feature in
+                        FeatureChart(feature: feature, drift: drift)
+                    }
+                }
+                .padding(.horizontal, 16)
+
+                Text("Shaded band = your usual range (baseline ± 1.5 standard deviations, from your first \(drift.baselineSize) check-ins). Dashed line = your average.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 20)
+            }
+        }
+        .padding(.vertical, 18)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .padding(.horizontal, 16)
+        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
+    }
+
+    private func driftNote(_ drift: DriftAnalysis) -> some View {
+        let names = drift.shifted.map { "\($0.feature.title.lowercased()) (\($0.higher ? "higher" : "lower"))" }
+            .formatted(.list(type: .and))
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "leaf.fill")
+                .foregroundStyle(Color(red: 0.91, green: 0.52, blue: 0.14))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("A gentle heads-up")
+                    .font(.headline)
+                Text("Your last two check-ins sounded a little different from your usual: \(names). Sleep, stress, a cold, or a different topic can all do this. It's only a pattern, not a diagnosis. If it keeps up and you're curious, it may be worth mentioning to a doctor.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .background(Color(red: 0.91, green: 0.52, blue: 0.14).opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .padding(.horizontal, 16)
     }
 
     // MARK: - Summary Banner
@@ -209,9 +279,10 @@ struct TrendsView: View {
 
     private func currentStreak() -> Int {
         let calendar = Calendar.current
+        let days = Set((checkIns.map(\.date) + sessions.map(\.date)).map { calendar.startOfDay(for: $0) })
         var streak = 0
         var day = calendar.startOfDay(for: .now)
-        while checkIns.first(where: { calendar.isDate($0.date, inSameDayAs: day) }) != nil {
+        while days.contains(day) {
             streak += 1
             guard let prev = calendar.date(byAdding: .day, value: -1, to: day) else { break }
             day = prev
@@ -220,10 +291,13 @@ struct TrendsView: View {
     }
 
     private func mostFrequentMood() -> (label: String, emoji: String) {
-        let counts = Dictionary(grouping: checkIns, by: \.mood).mapValues(\.count)
+        // Voice sessions carry a mood too; skip ones recorded without one.
+        let moods = checkIns.map { ($0.mood, $0.emoji) }
+            + sessions.filter { !$0.mood.isEmpty }.map { ($0.mood, $0.emoji) }
+        let counts = Dictionary(grouping: moods, by: \.0).mapValues(\.count)
         if let top = counts.max(by: { $0.value < $1.value }),
-           let ci  = checkIns.first(where: { $0.mood == top.key }) {
-            return (top.key, ci.emoji)
+           let match = moods.first(where: { $0.0 == top.key }) {
+            return (top.key, match.1)
         }
         return ("—", "—")
     }
@@ -239,6 +313,65 @@ func colorForMood(_ mood: String) -> Color {
     case "Low":    return Color(red: 0.42, green: 0.25, blue: 0.82)
     case "Tired":  return Color(red: 0.58, green: 0.28, blue: 0.58)
     default:       return .gray
+    }
+}
+
+// MARK: - Feature chart
+
+struct FeatureChart: View {
+    let feature: FingerprintFeature
+    let drift: DriftAnalysis
+
+    private static let calm = Color(red: 0.27, green: 0.24, blue: 0.80)
+    private static let note = Color(red: 0.91, green: 0.52, blue: 0.14)
+
+    var body: some View {
+        let b = drift.baseline[feature]
+        let lo = b.map { $0.mean - DriftAnalysis.zThreshold * $0.sd }
+        let hi = b.map { $0.mean + DriftAnalysis.zThreshold * $0.sd }
+        let values = drift.points.map { feature.value(in: $0.fingerprint) }
+        let yMin = min(values.min() ?? 0, lo ?? .infinity)
+        let yMax = max(values.max() ?? 1, hi ?? -.infinity)
+        let pad = max((yMax - yMin) * 0.1, 0.01)
+        let first = drift.points.first?.date ?? .now
+        let last = max(drift.points.last?.date ?? .now, first.addingTimeInterval(3600))
+
+        VStack(alignment: .leading, spacing: 4) {
+            Text(feature.title).font(.subheadline.bold())
+            Text(feature.unit.isEmpty ? " " : feature.unit)
+                .font(.caption2).foregroundStyle(.secondary)
+
+            Chart {
+                if let b, let lo, let hi {
+                    RectangleMark(xStart: .value("From", first), xEnd: .value("To", last),
+                                  yStart: .value("Low", lo), yEnd: .value("High", hi))
+                        .foregroundStyle(Self.calm.opacity(0.14))
+                    RuleMark(y: .value("Average", b.mean))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        .foregroundStyle(Self.calm.opacity(0.5))
+                }
+                ForEach(drift.points) { p in
+                    let v = feature.value(in: p.fingerprint)
+                    let outside = !p.inBaseline && abs(p.zScores[feature] ?? 0) > DriftAnalysis.zThreshold
+                    LineMark(x: .value("Date", p.date), y: .value(feature.title, v))
+                        .foregroundStyle(Self.calm.opacity(0.6))
+                    PointMark(x: .value("Date", p.date), y: .value(feature.title, v))
+                        .foregroundStyle(outside ? Self.note : Self.calm)
+                        .symbolSize(30)
+                }
+            }
+            .chartYScale(domain: (yMin - pad)...(yMax + pad))
+            .chartXAxis(.hidden)
+            .chartYAxis {
+                AxisMarks(position: .leading, values: .automatic(desiredCount: 3)) {
+                    AxisValueLabel().font(.caption2)
+                }
+            }
+            .frame(height: 90)
+        }
+        .padding(10)
+        .background(Color(.tertiarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 }
 

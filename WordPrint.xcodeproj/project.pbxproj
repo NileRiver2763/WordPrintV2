@@ -18,6 +18,10 @@
 		BB00000A /* SpeechRecognizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000B /* SpeechRecognizer.swift */; };
 		BB00000B /* CheckInFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000C /* CheckInFlowView.swift */; };
 		BB00000C /* FingerprintEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00000D /* FingerprintEngine.swift */; };
+		BT000001 /* TestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AT000001 /* TestSupport.swift */; };
+		BT000002 /* FingerprintEngineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AT000002 /* FingerprintEngineTests.swift */; };
+		BT000003 /* DriftAnalysisTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AT000003 /* DriftAnalysisTests.swift */; };
+		BT000004 /* ModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AT000004 /* ModelTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,10 +38,22 @@
 		AA00000B /* SpeechRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechRecognizer.swift; sourceTree = "<group>"; };
 		AA00000C /* CheckInFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CheckInFlowView.swift; sourceTree = "<group>"; };
 		AA00000D /* FingerprintEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintEngine.swift; sourceTree = "<group>"; };
+		AT000001 /* TestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestSupport.swift; sourceTree = "<group>"; };
+		AT000002 /* FingerprintEngineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FingerprintEngineTests.swift; sourceTree = "<group>"; };
+		AT000003 /* DriftAnalysisTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriftAnalysisTests.swift; sourceTree = "<group>"; };
+		AT000004 /* ModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelTests.swift; sourceTree = "<group>"; };
+		AT000010 /* WordPrintTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = WordPrintTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		DD000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DT000003 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -51,6 +67,7 @@
 			isa = PBXGroup;
 			children = (
 				CC000002 /* WordPrint */,
+				CT000001 /* WordPrintTests */,
 				CC000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -93,6 +110,7 @@
 			isa = PBXGroup;
 			children = (
 				AA000008 /* WordPrint.app */,
+				AT000010 /* WordPrintTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -104,6 +122,17 @@
 				AA00000D /* FingerprintEngine.swift */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		CT000001 /* WordPrintTests */ = {
+			isa = PBXGroup;
+			children = (
+				AT000001 /* TestSupport.swift */,
+				AT000002 /* FingerprintEngineTests.swift */,
+				AT000003 /* DriftAnalysisTests.swift */,
+				AT000004 /* ModelTests.swift */,
+			);
+			path = WordPrintTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -126,6 +155,23 @@
 			productReference = AA000008 /* WordPrint.app */;
 			productType = "com.apple.product-type.application";
 		};
+		ET000001 /* WordPrintTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = HT000001 /* Build configuration list for PBXNativeTarget "WordPrintTests" */;
+			buildPhases = (
+				DT000001 /* Sources */,
+				DT000003 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				PT000001 /* PBXTargetDependency */,
+			);
+			name = WordPrintTests;
+			productName = WordPrintTests;
+			productReference = AT000010 /* WordPrintTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -138,6 +184,10 @@
 				TargetAttributes = {
 					EE000001 = {
 						CreatedOnToolsVersion = 15.0;
+					};
+					ET000001 = {
+						CreatedOnToolsVersion = 15.0;
+						TestTargetID = EE000001;
 					};
 				};
 			};
@@ -155,6 +205,7 @@
 			projectRoot = "";
 			targets = (
 				EE000001 /* WordPrint */,
+				ET000001 /* WordPrintTests */,
 			);
 		};
 /* End PBXProject section */
@@ -188,7 +239,36 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DT000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BT000001 /* TestSupport.swift in Sources */,
+				BT000002 /* FingerprintEngineTests.swift in Sources */,
+				BT000003 /* DriftAnalysisTests.swift in Sources */,
+				BT000004 /* ModelTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXContainerItemProxy section */
+		PX000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = FF000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EE000001;
+			remoteInfo = WordPrint;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		PT000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EE000001 /* WordPrint */;
+			targetProxy = PX000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		GG000001 /* Debug */ = {
@@ -359,6 +439,48 @@
 			};
 			name = Release;
 		};
+		GT000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5R8ZYA4Z7J;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.wordprint.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WordPrint.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WordPrint";
+			};
+			name = Debug;
+		};
+		GT000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 5R8ZYA4Z7J;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.wordprint.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WordPrint.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WordPrint";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -376,6 +498,15 @@
 			buildConfigurations = (
 				GG000003 /* Debug */,
 				GG000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		HT000001 /* Build configuration list for PBXNativeTarget "WordPrintTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				GT000001 /* Debug */,
+				GT000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
