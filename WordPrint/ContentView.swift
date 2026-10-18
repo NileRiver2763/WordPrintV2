@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct ContentView: View {
+    @AppStorage("hasSeenIntro") private var hasSeenIntro = false
+
     var body: some View {
         TabView {
             CheckInFlowView()
@@ -19,6 +21,12 @@ struct ContentView: View {
                 }
         }
         .tint(.cyan)
+        .fullScreenCover(isPresented: Binding(
+            get: { !hasSeenIntro },
+            set: { if !$0 { hasSeenIntro = true } }
+        )) {
+            OnboardingView { hasSeenIntro = true }
+        }
     }
 }
 

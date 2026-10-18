@@ -13,6 +13,7 @@ struct TrendsView: View {
     @Environment(\.modelContext) private var modelContext
     // Cached: fingerprinting runs NLP over every transcript, so don't redo it on each redraw.
     @State private var drift = DriftAnalysis(sessions: [])
+    @State private var showShareSheet = false
 
     var body: some View {
         NavigationStack {
@@ -87,6 +88,7 @@ struct TrendsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .sheet(isPresented: $showShareSheet) { ShareWithDoctorSheet(drift: drift) }
         .onChange(of: sessions.map(\.date), initial: true) {
             drift = DriftAnalysis(sessions: sessions)
         }
@@ -115,6 +117,17 @@ struct TrendsView: View {
                         FeatureChart(feature: feature, drift: drift)
                     }
                 }
+                .padding(.horizontal, 16)
+
+                Button {
+                    showShareSheet = true
+                } label: {
+                    Label("Share with doctor", systemImage: "square.and.arrow.up")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                }
+                .buttonStyle(.bordered)
                 .padding(.horizontal, 16)
 
                 Text("Shaded band = your usual range (baseline ± 1.5 standard deviations, from your first \(drift.baselineSize) check-ins). Dashed line = your average.")
@@ -321,6 +334,8 @@ func colorForMood(_ mood: String) -> Color {
 struct FeatureChart: View {
     let feature: FingerprintFeature
     let drift: DriftAnalysis
+    /// Smaller type and height, for the one-page PDF.
+    var compact = false
 
     private static let calm = Color(red: 0.27, green: 0.24, blue: 0.80)
     private static let note = Color(red: 0.91, green: 0.52, blue: 0.14)
@@ -337,9 +352,12 @@ struct FeatureChart: View {
         let last = max(drift.points.last?.date ?? .now, first.addingTimeInterval(3600))
 
         VStack(alignment: .leading, spacing: 4) {
-            Text(feature.title).font(.subheadline.bold())
+            Text(feature.title)
+                .font(compact ? .system(size: 10, weight: .bold) : .subheadline.bold())
+                .lineLimit(1).minimumScaleFactor(0.7)
             Text(feature.unit.isEmpty ? " " : feature.unit)
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(compact ? .system(size: 7) : .caption2).foregroundStyle(.secondary)
+                .lineLimit(1).minimumScaleFactor(0.7)
 
             Chart {
                 if let b, let lo, let hi {
@@ -367,9 +385,9 @@ struct FeatureChart: View {
                     AxisValueLabel().font(.caption2)
                 }
             }
-            .frame(height: 90)
+            .frame(height: compact ? 60 : 90)
         }
-        .padding(10)
+        .padding(compact ? 6 : 10)
         .background(Color(.tertiarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14))
     }

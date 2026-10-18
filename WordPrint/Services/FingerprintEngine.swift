@@ -274,7 +274,14 @@ struct DriftAnalysis {
     var shifted: [(feature: FingerprintFeature, higher: Bool)] = []
 
     var hasBaseline: Bool { !baseline.isEmpty }
-    var isFlagged: Bool { shifted.count >= Self.featuresNeeded }
+    /// Word variety is measured twice (whole transcript and 50-word chunks) and the two
+    /// are identical for transcripts under 50 words, so they count as one signal.
+    var signalCount: Int {
+        let both = shifted.contains { $0.feature == .typeTokenRatio }
+            && shifted.contains { $0.feature == .movingAverageTTR }
+        return shifted.count - (both ? 1 : 0)
+    }
+    var isFlagged: Bool { signalCount >= Self.featuresNeeded }
 
     /// - Parameter sessions: voice check-ins in any order.
     init(sessions: [Session]) {

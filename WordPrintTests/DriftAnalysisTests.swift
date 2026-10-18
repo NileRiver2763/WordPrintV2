@@ -139,4 +139,13 @@ final class DriftAnalysisTests: XCTestCase {
         d.shifted.append((.typeTokenRatio, false))
         XCTAssertTrue(d.isFlagged)
     }
+
+    func testWordVarietyMeasuresCountAsOneSignal() {
+        var d = DriftAnalysis(sessions: [])
+        d.shifted = [(.fillerRate, true), (.typeTokenRatio, false), (.movingAverageTTR, false)]
+        XCTAssertEqual(d.signalCount, 2)
+        XCTAssertFalse(d.isFlagged)
+        d.shifted.append((.wordsPerMinute, false))
+        XCTAssertTrue(d.isFlagged)
+    }
 }
