@@ -32,7 +32,7 @@ final class ModelTests: XCTestCase {
     func testFeatureListCoversEveryFingerprintField() {
         let f = Fingerprint(typeTokenRatio: 1, movingAverageTTR: 2, vagueLanguageIndex: 3,
                             fillerRate: 4, wordsPerMinute: 5, meanSentenceLength: 6, pronounNounRatio: 7)
-        let values = FingerprintFeature.allCases.map { $0.value(in: f) }
+        let values = FingerprintFeature.allCases.compactMap { $0.value(in: f) }
         XCTAssertEqual(Set(values), [1, 2, 3, 4, 5, 6, 7])
     }
 }

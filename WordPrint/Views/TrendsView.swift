@@ -4,8 +4,8 @@ import Charts
 
 //Author: Neil Voore
 
-private let trendsPrimary = Color(red: 0.27, green: 0.24, blue: 0.80)
-private let trendsPurple  = Color(red: 0.56, green: 0.27, blue: 0.68)
+private let trendsPrimary = Color(red: 0.08, green: 0.58, blue: 0.22)
+private let trendsPurple  = Color(red: 0.95, green: 0.68, blue: 0.0)
 
 struct TrendsView: View {
     @Query(sort: \CheckIn.date, order: .reverse) private var checkIns: [CheckIn]
@@ -26,7 +26,7 @@ struct TrendsView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Trends")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 
@@ -34,63 +34,37 @@ struct TrendsView: View {
 
     private var content: some View {
         List {
-            summaryBanner
-                .listRowInsets(EdgeInsets())
+            chartsRows
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .sheet(isPresented: $showShareSheet) { ShareWithDoctorSheet(drift: drift) }
+        .task(id: sessions.map(\.date)) {
+            // Language analysis is slow; do it off the main thread so saving never stalls the UI.
+            let snapshots = sessions.map(SessionSnapshot.init)
+            let result = await Task.detached(priority: .userInitiated) { DriftAnalysis(snapshots: snapshots) }.value
+            if !Task.isCancelled { drift = result }
+        }
+    }
+
+    // MARK: - Cards
+
+    @ViewBuilder private var chartsRows: some View {
+        summaryBanner
+            .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        if !checkIns.isEmpty {
+            weekGrid
+                .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
-            if !checkIns.isEmpty {
-                weekGrid
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
-            if !sessions.isEmpty {
-                speechPatternsSection
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
-            if !sessions.isEmpty {
-                Section {
-                    ForEach(sessions) { session in
-                        SessionRow(session: session)
-                            .padding(.vertical, 6)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(role: .destructive) {
-                                    modelContext.delete(session)
-                                    try? modelContext.save()
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                    }
-                } header: {
-                    Text("Voice Check-ins").font(.title2.bold()).foregroundStyle(.primary).textCase(nil)
-                }
-            }
-            if !checkIns.isEmpty {
-                Section {
-                    ForEach(checkIns) { item in
-                        CheckInRow(checkIn: item)
-                            .padding(.vertical, 6)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(role: .destructive) {
-                                    modelContext.delete(item)
-                                    try? modelContext.save()
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                            }
-                    }
-                } header: {
-                    Text("All Check-ins").font(.title2.bold()).foregroundStyle(.primary).textCase(nil)
-                }
-            }
         }
-        .listStyle(.insetGrouped)
-        .sheet(isPresented: $showShareSheet) { ShareWithDoctorSheet(drift: drift) }
-        .onChange(of: sessions.map(\.date), initial: true) {
-            drift = DriftAnalysis(sessions: sessions)
+        if !sessions.isEmpty {
+            speechPatternsSection
+                .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
         }
     }
 
@@ -99,7 +73,7 @@ struct TrendsView: View {
     private var speechPatternsSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Speech Patterns")
-                .font(.title2.bold())
+                .font(.system(.title2, design: .rounded, weight: .heavy))
                 .padding(.horizontal, 20)
 
             if !drift.hasBaseline {
@@ -113,7 +87,7 @@ struct TrendsView: View {
                 if drift.isFlagged { driftNote(drift) }
 
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                    ForEach(FingerprintFeature.allCases) { feature in
+                    ForEach(drift.availableFeatures) { feature in
                         FeatureChart(feature: feature, drift: drift)
                     }
                 }
@@ -122,12 +96,9 @@ struct TrendsView: View {
                 Button {
                     showShareSheet = true
                 } label: {
-                    Label("Share with doctor", systemImage: "square.and.arrow.up")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
+                    SunnyShareLabel()
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(ChunkyButtonStyle(face: Chunky.orange, lip: Chunky.orangeLip, radius: 20, depth: 6))
                 .padding(.horizontal, 16)
 
                 Text("Shaded band = your usual range (baseline ± 1.5 standard deviations, from your first \(drift.baselineSize) check-ins). Dashed line = your average.")
@@ -139,8 +110,8 @@ struct TrendsView: View {
         .padding(.vertical, 18)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 24))
+        .chunkyBorder(24)
         .padding(.horizontal, 16)
-        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
     }
 
     private func driftNote(_ drift: DriftAnalysis) -> some View {
@@ -151,7 +122,7 @@ struct TrendsView: View {
                 .foregroundStyle(Color(red: 0.91, green: 0.52, blue: 0.14))
             VStack(alignment: .leading, spacing: 4) {
                 Text("A gentle heads-up")
-                    .font(.headline)
+                    .font(.system(.headline, design: .rounded, weight: .bold))
                 Text("Your last two check-ins sounded a little different from your usual: \(names). Sleep, stress, a cold, or a different topic can all do this. It's only a pattern, not a diagnosis. If it keeps up and you're curious, it may be worth mentioning to a doctor.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -177,17 +148,17 @@ struct TrendsView: View {
         .padding(.vertical, 18)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 24))
+        .chunkyBorder(24)
         .padding(.horizontal, 16)
-        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
     }
 
     private func statCell(value: String, label: String, color: Color) -> some View {
         VStack(spacing: 6) {
             Text(value)
-                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .font(.system(size: 36, weight: .heavy, design: .rounded))
                 .foregroundStyle(color)
             Text(label)
-                .font(.caption.bold())
+                .font(.system(.footnote, design: .rounded, weight: .bold))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
         }
@@ -206,10 +177,10 @@ struct TrendsView: View {
     private var weekGrid: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Last 7 Days")
-                .font(.title2.bold())
+                .font(.system(.title2, design: .rounded, weight: .heavy))
                 .padding(.horizontal, 20)
 
-            HStack(spacing: 10) {
+            HStack(spacing: 6) {
                 ForEach(last7Days(), id: \.date) { day in
                     VStack(spacing: 8) {
                         ZStack {
@@ -217,7 +188,8 @@ struct TrendsView: View {
                                 .fill(day.checkIn != nil
                                       ? colorForMood(day.checkIn!.mood).opacity(0.18)
                                       : Color(.tertiarySystemGroupedBackground))
-                                .frame(width: 48, height: 54)
+                                .frame(maxWidth: 48)
+                                .frame(height: 54)
 
                             if let ci = day.checkIn {
                                 Text(ci.emoji).font(.system(size: 28))
@@ -244,8 +216,8 @@ struct TrendsView: View {
         .padding(.vertical, 18)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 24))
+        .chunkyBorder(24)
         .padding(.horizontal, 16)
-        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
     }
 
     // MARK: - Empty State
@@ -262,7 +234,7 @@ struct TrendsView: View {
             }
             VStack(spacing: 10) {
                 Text("No check-ins yet")
-                    .font(.title2.bold())
+                    .font(.system(.title2, design: .rounded, weight: .heavy))
                 Text("Start by tapping the Check-in tab\nand recording how you feel.")
                     .font(.title3)
                     .multilineTextAlignment(.center)
@@ -291,16 +263,7 @@ struct TrendsView: View {
     }
 
     private func currentStreak() -> Int {
-        let calendar = Calendar.current
-        let days = Set((checkIns.map(\.date) + sessions.map(\.date)).map { calendar.startOfDay(for: $0) })
-        var streak = 0
-        var day = calendar.startOfDay(for: .now)
-        while days.contains(day) {
-            streak += 1
-            guard let prev = calendar.date(byAdding: .day, value: -1, to: day) else { break }
-            day = prev
-        }
-        return streak
+        Streak.count(dates: checkIns.map(\.date) + sessions.map(\.date))
     }
 
     private func mostFrequentMood() -> (label: String, emoji: String) {
@@ -323,8 +286,8 @@ func colorForMood(_ mood: String) -> Color {
     case "Great":  return Color(red: 0.10, green: 0.73, blue: 0.53)
     case "Good":   return Color(red: 0.15, green: 0.52, blue: 0.83)
     case "Okay":   return Color(red: 0.91, green: 0.52, blue: 0.14)
-    case "Low":    return Color(red: 0.42, green: 0.25, blue: 0.82)
-    case "Tired":  return Color(red: 0.58, green: 0.28, blue: 0.58)
+    case "Low":    return Color(red: 0.25, green: 0.45, blue: 0.75)
+    case "Tired":  return Color(red: 0.55, green: 0.55, blue: 0.10)
     default:       return .gray
     }
 }
@@ -337,14 +300,14 @@ struct FeatureChart: View {
     /// Smaller type and height, for the one-page PDF.
     var compact = false
 
-    private static let calm = Color(red: 0.27, green: 0.24, blue: 0.80)
+    private static let calm = Color(red: 0.08, green: 0.58, blue: 0.22)
     private static let note = Color(red: 0.91, green: 0.52, blue: 0.14)
 
     var body: some View {
         let b = drift.baseline[feature]
         let lo = b.map { $0.mean - DriftAnalysis.zThreshold * $0.sd }
         let hi = b.map { $0.mean + DriftAnalysis.zThreshold * $0.sd }
-        let values = drift.points.map { feature.value(in: $0.fingerprint) }
+        let values = drift.points.compactMap { feature.value(in: $0.fingerprint) }
         let yMin = min(values.min() ?? 0, lo ?? .infinity)
         let yMax = max(values.max() ?? 1, hi ?? -.infinity)
         let pad = max((yMax - yMin) * 0.1, 0.01)
@@ -369,13 +332,14 @@ struct FeatureChart: View {
                         .foregroundStyle(Self.calm.opacity(0.5))
                 }
                 ForEach(drift.points) { p in
-                    let v = feature.value(in: p.fingerprint)
-                    let outside = !p.inBaseline && abs(p.zScores[feature] ?? 0) > DriftAnalysis.zThreshold
-                    LineMark(x: .value("Date", p.date), y: .value(feature.title, v))
-                        .foregroundStyle(Self.calm.opacity(0.6))
-                    PointMark(x: .value("Date", p.date), y: .value(feature.title, v))
-                        .foregroundStyle(outside ? Self.note : Self.calm)
-                        .symbolSize(30)
+                    if let v = feature.value(in: p.fingerprint) {
+                        let outside = !p.inBaseline && abs(p.zScores[feature] ?? 0) > DriftAnalysis.zThreshold
+                        LineMark(x: .value("Date", p.date), y: .value(feature.title, v))
+                            .foregroundStyle(Self.calm.opacity(0.6))
+                        PointMark(x: .value("Date", p.date), y: .value(feature.title, v))
+                            .foregroundStyle(outside ? Self.note : Self.calm)
+                            .symbolSize(30)
+                    }
                 }
             }
             .chartYScale(domain: (yMin - pad)...(yMax + pad))
@@ -402,11 +366,11 @@ struct SessionRow: View {
         HStack(spacing: 14) {
             ZStack {
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(Color(red: 0.27, green: 0.24, blue: 0.80).opacity(0.14))
+                    .fill(Color(red: 0.08, green: 0.58, blue: 0.22).opacity(0.14))
                     .frame(width: 52, height: 52)
                 Image(systemName: "mic.fill")
                     .font(.system(size: 22))
-                    .foregroundStyle(Color(red: 0.27, green: 0.24, blue: 0.80))
+                    .foregroundStyle(Color(red: 0.08, green: 0.58, blue: 0.22))
             }
 
             VStack(alignment: .leading, spacing: 5) {
@@ -414,10 +378,10 @@ struct SessionRow: View {
                     if !session.emoji.isEmpty {
                         Text(session.emoji).font(.title3)
                         Text(session.mood.isEmpty ? "Voice Check-in" : session.mood)
-                            .font(.title3.bold())
+                            .font(.system(.title3, design: .rounded, weight: .bold))
                     } else {
                         Text("Voice Check-in")
-                            .font(.title3.bold())
+                            .font(.system(.title3, design: .rounded, weight: .bold))
                     }
                     Spacer()
                     Text(session.formattedDuration)
@@ -425,7 +389,7 @@ struct SessionRow: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
-                        .background(Color(red: 0.27, green: 0.24, blue: 0.80))
+                        .background(Color(red: 0.08, green: 0.58, blue: 0.22))
                         .clipShape(Capsule())
                 }
 
@@ -459,7 +423,7 @@ struct CheckInRow: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(checkIn.mood)
-                    .font(.title3.bold())
+                    .font(.system(.title3, design: .rounded, weight: .bold))
 
                 Text(checkIn.date, format: .dateTime.weekday(.wide).month(.wide).day().year())
                     .font(.body)

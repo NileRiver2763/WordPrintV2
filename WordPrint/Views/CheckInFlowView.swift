@@ -22,8 +22,8 @@ private let flowMoods: [MoodOption] = [
     MoodOption(emoji: "😄", label: "Great", color: Color(red: 0.10, green: 0.73, blue: 0.53)),
     MoodOption(emoji: "🙂", label: "Good",  color: Color(red: 0.15, green: 0.52, blue: 0.83)),
     MoodOption(emoji: "😐", label: "Okay",  color: Color(red: 0.91, green: 0.52, blue: 0.14)),
-    MoodOption(emoji: "😔", label: "Low",   color: Color(red: 0.42, green: 0.25, blue: 0.82)),
-    MoodOption(emoji: "😴", label: "Tired", color: Color(red: 0.58, green: 0.28, blue: 0.58)),
+    MoodOption(emoji: "😔", label: "Low",   color: Color(red: 0.25, green: 0.45, blue: 0.75)),
+    MoodOption(emoji: "😴", label: "Tired", color: Color(red: 0.55, green: 0.55, blue: 0.10)),
 ]
 
 struct CheckInFlowView: View {
@@ -34,6 +34,14 @@ struct CheckInFlowView: View {
     @State private var secondsElapsed: Int = 0
     @State private var sessionTimer: Timer?
     @State private var selectedMood: MoodOption?
+    @State private var period = TimeOfDay.from(date: .now)
+    @AppStorage(Neilbot.nameKey) private var patientName = ""
+    @AppStorage("reminderOn") private var reminderOn = false
+    @Query private var allSessions: [Session]
+    @Query private var allCheckIns: [CheckIn]
+    @State private var showPDF = false
+    @State private var promptInUse = DailyPrompt.forCheckIn(number: 0)
+    @Environment(\.scenePhase) private var scenePhase
 
     private let maxSeconds = 60
 
@@ -50,8 +58,7 @@ struct CheckInFlowView: View {
                 }
             }
             .navigationTitle("Check-in")
-            .navigationBarTitleDisplayMode(.large)
-            .animation(.easeInOut(duration: 0.35), value: secondsElapsed)
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 
@@ -60,102 +67,102 @@ struct CheckInFlowView: View {
     // ─────────────────────────────────────────────────────────────────────
 
     private var welcomeScreen: some View {
-        VStack(spacing: 0) {
-            MorningSceneView()
-                .frame(maxWidth: .infinity)
-                .frame(height: 280)
-                .clipShape(RoundedRectangle(cornerRadius: 28))
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .shadow(color: .black.opacity(0.10), radius: 12, y: 6)
+        ScrollView {
+            VStack(spacing: 16) {
+                NeilbotAvatar(size: 100)
+                    .padding(.top, 8)
 
-            VStack(spacing: 12) {
-                Text("Your Daily Check-in")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .multilineTextAlignment(.center)
+                neilbotSpeech
+                    .padding(.horizontal, 16)
 
-                Text("Speak for up to one minute.\nTell us how you're feeling today.")
-                    .font(.title3)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                    .lineSpacing(4)
+                moodPickerRow
             }
-            .padding(.top, 32)
-            .padding(.horizontal, 24)
-
-            moodPickerRow
-                .padding(.top, 24)
-
-            Spacer()
-
+            .padding(.bottom, 8)
+        }
+        .safeAreaInset(edge: .bottom) {
             startButton
                 .padding(.horizontal, 24)
-                .padding(.bottom, 40)
+                .padding(.vertical, 12)
+                .background(.bar)
+        }
+        // Keep the greeting right if the screen is revisited later in the day.
+        .onAppear {
+            period = TimeOfDay.from(date: .now)
+            if reminderOn {
+                let m = UserDefaults.standard.object(forKey: "reminderMinutes") as? Int ?? 540
+                Task { await ReminderScheduler.schedule(hour: m / 60, minute: m % 60, name: patientName) }
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active { period = TimeOfDay.from(date: .now) }
+        }
+    }
+
+    /// The question for the next voice check-in: one step further along the list each time.
+    private var nextPrompt: DailyPrompt { DailyPrompt.forCheckIn(number: allSessions.count) }
+
+    private var neilbotSpeech: some View {
+        NeilbotBubble(showsAvatar: false) {
+            if Neilbot.cleanName(patientName).isEmpty {
+                Text(Neilbot.askName)
+                    .font(.system(.title2, design: .rounded, weight: .heavy))
+                TextField("Your name", text: $patientName)
+                    .textContentType(.givenName)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.title3)
+            } else {
+                Text("\(period.greetingWord)!")
+                    .font(.system(.title, design: .rounded, weight: .heavy))
+                    .accessibilityAddTraits(.isHeader)
+                Text(Neilbot.ready)
+                    .font(.system(.title3, design: .rounded, weight: .bold))
+                    .foregroundStyle(Color(red: 0.40, green: 0.62, blue: 0.0))
+            }
         }
     }
 
     private var moodPickerRow: some View {
-        VStack(spacing: 10) {
-            Text("How are you feeling?")
-                .font(.subheadline.bold())
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 0) {
-                ForEach(flowMoods) { mood in
-                    Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.65)) {
-                            selectedMood = (selectedMood?.id == mood.id) ? nil : mood
-                        }
-                    } label: {
-                        VStack(spacing: 4) {
-                            Text(mood.emoji)
-                                .font(.system(size: 30))
-                                .frame(width: 50, height: 50)
-                                .background(
-                                    selectedMood?.id == mood.id
-                                        ? mood.color.opacity(0.18)
-                                        : Color(.tertiarySystemGroupedBackground)
-                                )
-                                .clipShape(RoundedRectangle(cornerRadius: 14))
-                                .overlay {
-                                    if selectedMood?.id == mood.id {
-                                        RoundedRectangle(cornerRadius: 14)
-                                            .strokeBorder(mood.color, lineWidth: 2.5)
-                                    }
-                                }
-                            Text(mood.label)
-                                .font(.caption.bold())
-                                .foregroundStyle(selectedMood?.id == mood.id ? mood.color : .secondary)
-                        }
-                        .frame(maxWidth: .infinity)
+        HStack(spacing: 8) {
+            ForEach(flowMoods) { mood in
+                let picked = selectedMood?.id == mood.id
+                Button {
+                    // No animation here: the highlight change is instant and cheap.
+                    selectedMood = picked ? nil : mood
+                } label: {
+                    VStack(spacing: 4) {
+                        Text(mood.emoji).font(.system(size: 34))
+                        Text(mood.label)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundStyle(picked ? mood.color : .primary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                     }
-                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
                 }
+                .buttonStyle(ChunkyButtonStyle(
+                    face: Color(.secondarySystemGroupedBackground),
+                    lip: picked ? mood.color.opacity(0.7) : Chunky.gray,
+                    border: picked ? mood.color : Chunky.gray,
+                    radius: 16, depth: 4))
+                .accessibilityLabel(mood.label)
+                .accessibilityAddTraits(picked ? .isSelected : [])
             }
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 16)
     }
 
     private var startButton: some View {
         Button {
             Task { await requestAndStart() }
         } label: {
-            Label("Start Speaking", systemImage: "mic.fill")
-                .font(.system(size: 22, weight: .semibold, design: .rounded))
+            Label("Speak", systemImage: "mic.fill")
+                .font(.system(size: 24, weight: .heavy, design: .rounded))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
-                .frame(height: 64)
-                .background(
-                    LinearGradient(
-                        colors: [Color(red: 0.27, green: 0.24, blue: 0.80),
-                                 Color(red: 0.56, green: 0.27, blue: 0.68)],
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-                .shadow(color: Color(red: 0.27, green: 0.24, blue: 0.80).opacity(0.4),
-                        radius: 10, y: 5)
+                .frame(height: 60)
         }
+        .buttonStyle(ChunkyButtonStyle(radius: 20, depth: 6))
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -166,9 +173,9 @@ struct CheckInFlowView: View {
         VStack(spacing: 28) {
             ProgressView()
                 .scaleEffect(2.2)
-                .tint(Color(red: 0.27, green: 0.24, blue: 0.80))
+                .tint(Color(red: 0.08, green: 0.58, blue: 0.22))
             Text("Setting up microphone…")
-                .font(.title2.bold())
+                .font(.system(.title2, design: .rounded, weight: .heavy))
             Text("We'll ask for permission to use\nyour microphone and speech recognition.")
                 .font(.title3)
                 .multilineTextAlignment(.center)
@@ -210,13 +217,12 @@ struct CheckInFlowView: View {
                 }
             } label: {
                 Label("Open Settings", systemImage: "gear")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 21, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
-                    .background(Color(red: 0.27, green: 0.24, blue: 0.80))
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
             }
+            .buttonStyle(ChunkyButtonStyle())
             .padding(.horizontal, 32)
 
             Button("Go Back") { phase = .welcome }
@@ -231,7 +237,12 @@ struct CheckInFlowView: View {
     // ─────────────────────────────────────────────────────────────────────
 
     private var recordingScreen: some View {
+        ScrollView {
         VStack(spacing: 0) {
+            promptCard
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+
             // Countdown ring + mic animation
             ZStack {
                 // Background ring
@@ -243,8 +254,8 @@ struct CheckInFlowView: View {
                     .trim(from: 0,
                           to: max(0, CGFloat(maxSeconds - secondsElapsed) / CGFloat(maxSeconds)))
                     .stroke(
-                        LinearGradient(colors: [Color(red: 0.27, green: 0.24, blue: 0.80),
-                                                Color(red: 0.56, green: 0.27, blue: 0.68)],
+                        LinearGradient(colors: [Color(red: 0.08, green: 0.58, blue: 0.22),
+                                                Color(red: 0.95, green: 0.68, blue: 0.0)],
                                        startPoint: .topLeading, endPoint: .bottomTrailing),
                         style: StrokeStyle(lineWidth: 10, lineCap: .round)
                     )
@@ -255,13 +266,13 @@ struct CheckInFlowView: View {
                 VStack(spacing: 6) {
                     Text("\(maxSeconds - secondsElapsed)")
                         .font(.system(size: 52, weight: .bold, design: .monospaced))
-                        .foregroundStyle(Color(red: 0.27, green: 0.24, blue: 0.80))
+                        .foregroundStyle(Color(red: 0.08, green: 0.58, blue: 0.22))
                     Text("seconds left")
                         .font(.callout.bold())
                         .foregroundStyle(.secondary)
                 }
             }
-            .padding(.top, 36)
+            .padding(.top, 20)
 
             PulsingMic()
                 .frame(width: 90, height: 90)
@@ -286,7 +297,7 @@ struct CheckInFlowView: View {
                 HStack {
                     Circle().fill(Color.red).frame(width: 8, height: 8)
                     Text("Live Transcript")
-                        .font(.headline.bold())
+                        .font(.system(.headline, design: .rounded, weight: .bold))
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button {
@@ -328,22 +339,27 @@ struct CheckInFlowView: View {
             .padding(.top, 28)
             .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
 
-            Spacer()
-
+        }
+        .padding(.bottom, 16)
+        }
+        .safeAreaInset(edge: .bottom) {
             Button(action: finishRecording) {
                 Label("Done — Save Check-in", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 21, weight: .semibold, design: .rounded))
+                    .font(.system(size: 21, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 64)
-                    .background(Color(red: 0.10, green: 0.60, blue: 0.40))
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                    .shadow(color: Color(red: 0.10, green: 0.60, blue: 0.40).opacity(0.4),
-                            radius: 10, y: 5)
+                    .frame(height: 60)
             }
+            .buttonStyle(ChunkyButtonStyle(radius: 20, depth: 6))
             .padding(.horizontal, 24)
-            .padding(.bottom, 40)
+            .padding(.vertical, 12)
+            .background(.bar)
         }
+    }
+
+    /// Today's question, with its picture when it is a picture prompt.
+    private var promptCard: some View {
+        PromptCard(prompt: promptInUse).equatable()
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -351,15 +367,14 @@ struct CheckInFlowView: View {
     // ─────────────────────────────────────────────────────────────────────
 
     private func savedScreen(duration: TimeInterval, transcript: String) -> some View {
+        ScrollView {
         VStack(spacing: 0) {
-            Spacer()
-
             ZStack {
                 Circle()
                     .fill(Color(red: 0.10, green: 0.60, blue: 0.40).opacity(0.12))
-                    .frame(width: 130, height: 130)
+                    .frame(width: 90, height: 90)
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 64))
+                    .font(.system(size: 46))
                     .foregroundStyle(Color(red: 0.10, green: 0.60, blue: 0.40))
             }
 
@@ -370,7 +385,7 @@ struct CheckInFlowView: View {
                     HStack(spacing: 8) {
                         Text(mood.emoji).font(.title2)
                         Text(mood.label)
-                            .font(.title2.bold())
+                            .font(.system(.title2, design: .rounded, weight: .heavy))
                             .foregroundStyle(mood.color)
                     }
                 }
@@ -384,7 +399,7 @@ struct CheckInFlowView: View {
             if !transcript.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("What you said:")
-                        .font(.headline)
+                        .font(.system(.headline, design: .rounded, weight: .bold))
                         .foregroundStyle(.secondary)
                     Text(transcript)
                         .font(.system(size: 18))
@@ -400,33 +415,43 @@ struct CheckInFlowView: View {
                 .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
             }
 
-            Spacer()
+            GrowthCard(streak: Streak.count(dates: allSessions.map(\.date) + allCheckIns.map(\.date))) {
+                showPDF = true
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 20)
 
+            ReminderRow()
+                .padding(16)
+                .background(Color(.secondarySystemGroupedBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+
+        }
+        .padding(.top, 20)
+        .padding(.bottom, 16)
+        }
+        .safeAreaInset(edge: .bottom) {
             Button {
                 secondsElapsed = 0
                 selectedMood = nil
                 phase = .welcome
             } label: {
                 Text("Done")
-                    .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    .font(.system(size: 22, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 64)
-                    .background(
-                        LinearGradient(
-                            colors: [Color(red: 0.27, green: 0.24, blue: 0.80),
-                                     Color(red: 0.56, green: 0.27, blue: 0.68)],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                    .shadow(color: Color(red: 0.27, green: 0.24, blue: 0.80).opacity(0.4),
-                            radius: 10, y: 5)
+                    .frame(height: 60)
             }
+            .buttonStyle(ChunkyButtonStyle(radius: 20, depth: 6))
             .padding(.horizontal, 24)
-            .padding(.bottom, 40)
+            .padding(.vertical, 12)
+            .background(.bar)
         }
-        .padding(.top, 20)
+        .sheet(isPresented: $showPDF) {
+            ShareWithDoctorSheet(drift: DriftAnalysis(sessions: allSessions))
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -435,6 +460,7 @@ struct CheckInFlowView: View {
 
     private func requestAndStart() async {
         phase = .requestingPermissions
+        promptInUse = nextPrompt
 
         let permission = await speech.requestPermissions()
         switch permission {
@@ -488,87 +514,14 @@ struct CheckInFlowView: View {
             duration: duration,
             transcript: speech.transcript,
             mood: selectedMood?.label ?? "",
-            emoji: selectedMood?.emoji ?? ""
+            emoji: selectedMood?.emoji ?? "",
+            promptID: promptInUse.id,
+            pauses: speech.pauseStats
         )
         modelContext.insert(session)
         try? modelContext.save()
 
         phase = .saved(duration: duration, transcript: speech.transcript)
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MARK: - MorningSceneView
-// ─────────────────────────────────────────────────────────────────────────────
-
-struct MorningSceneView: View {
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-
-            ZStack {
-                // Sky gradient
-                LinearGradient(
-                    colors: [Color(red: 0.36, green: 0.68, blue: 0.95),
-                             Color(red: 0.98, green: 0.76, blue: 0.55),
-                             Color(red: 0.99, green: 0.55, blue: 0.38)],
-                    startPoint: .top, endPoint: .bottom
-                )
-
-                // Sun
-                Circle()
-                    .fill(Color(red: 1.0, green: 0.87, blue: 0.30))
-                    .frame(width: w * 0.22, height: w * 0.22)
-                    .blur(radius: 2)
-                    .shadow(color: Color(red: 1.0, green: 0.75, blue: 0.10).opacity(0.6), radius: 18)
-                    .position(x: w * 0.72, y: h * 0.25)
-
-                // Cloud 1
-                CloudShape()
-                    .fill(Color.white.opacity(0.80))
-                    .frame(width: w * 0.30, height: w * 0.10)
-                    .position(x: w * 0.22, y: h * 0.20)
-
-                // Cloud 2
-                CloudShape()
-                    .fill(Color.white.opacity(0.65))
-                    .frame(width: w * 0.22, height: w * 0.07)
-                    .position(x: w * 0.58, y: h * 0.14)
-
-                // Far hill
-                Ellipse()
-                    .fill(Color(red: 0.30, green: 0.65, blue: 0.35).opacity(0.85))
-                    .frame(width: w * 1.4, height: h * 0.55)
-                    .position(x: w * 0.35, y: h * 0.98)
-
-                // Near hill
-                Ellipse()
-                    .fill(Color(red: 0.22, green: 0.53, blue: 0.28))
-                    .frame(width: w * 1.2, height: h * 0.48)
-                    .position(x: w * 0.75, y: h * 1.02)
-
-                // Ground strip
-                Rectangle()
-                    .fill(Color(red: 0.18, green: 0.45, blue: 0.23))
-                    .frame(height: h * 0.18)
-                    .frame(maxWidth: .infinity)
-                    .position(x: w * 0.5, y: h * 0.91)
-            }
-        }
-    }
-}
-
-// Simple cloud silhouette from overlapping capsules
-struct CloudShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        let w = rect.width, h = rect.height
-        p.addEllipse(in: CGRect(x: w*0.05, y: h*0.25, width: w*0.50, height: h*0.75))
-        p.addEllipse(in: CGRect(x: w*0.30, y: h*0.05, width: w*0.40, height: h*0.70))
-        p.addEllipse(in: CGRect(x: w*0.55, y: h*0.30, width: w*0.40, height: h*0.65))
-        p.addRect(CGRect(x: w*0.05, y: h*0.55, width: w*0.90, height: h*0.45))
-        return p
     }
 }
 
@@ -607,4 +560,35 @@ struct PulsingMic: View {
 #Preview {
     CheckInFlowView()
         .modelContainer(for: [CheckIn.self, Session.self], inMemory: true)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARK: - PromptCard
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Equatable so SwiftUI skips redrawing it every time the live transcript changes.
+struct PromptCard: View, Equatable {
+    let prompt: DailyPrompt
+
+    var body: some View {
+        VStack(spacing: 10) {
+            if let picture = prompt.picture {
+                PictureView(picture: picture)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .accessibilityHidden(true)
+            }
+            Text(prompt.question)
+                .font(.system(.title3, design: .rounded, weight: .bold))
+                .multilineTextAlignment(.center)
+            Text("Take your time. Pauses are okay.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity)
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .chunkyBorder(20)
+    }
 }

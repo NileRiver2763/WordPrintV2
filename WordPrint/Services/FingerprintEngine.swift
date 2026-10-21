@@ -65,6 +65,13 @@ struct Fingerprint {
     /// High ratio is a marker of anomia (substituting pronouns for forgotten nouns).
     /// Python ref: syntactic.compute() → pronoun_to_noun_ratio
     var pronounNounRatio: Double
+
+    /// Pauses (0.5 s or longer, mid-speech) per minute of recording.
+    /// nil when the check-in has no pause measurement (recorded before pauses existed).
+    var pausesPerMinute: Double? = nil
+
+    /// Average length of those pauses, in seconds.
+    var meanPauseSeconds: Double? = nil
 }
 
 extension Fingerprint {
@@ -74,7 +81,7 @@ extension Fingerprint {
     ///   - transcript:      Raw transcript string from SpeechRecognizer.
     ///   - durationSeconds: Recording length in seconds (for wordsPerMinute).
     /// - Returns: A fully populated Fingerprint.
-    static func analyze(transcript: String, durationSeconds: Double) -> Fingerprint {
+    static func analyze(transcript: String, durationSeconds: Double, pauses: PauseStats? = nil) -> Fingerprint {
         // TODO: Lowercase the transcript and split it into word tokens.
         //       Hint: use .lowercased() then split on non-alpha characters.
         //       You'll use this [String] array for TTR, MSTTR, fillerRate, wordsPerMinute.
@@ -190,6 +197,7 @@ extension Fingerprint {
         //           meanSentenceLength: ...,
         //           pronounNounRatio:  ...
         //       ) 
+        let pauseRate = pauses.map { durationSeconds > 0 ? Double($0.count) / (durationSeconds / 60.0) : 0 }
         return Fingerprint(
             typeTokenRatio:     (ttr   * 10000).rounded() / 10000,
             movingAverageTTR:   (msttr * 10000).rounded() / 10000,
@@ -197,7 +205,9 @@ extension Fingerprint {
             fillerRate:         (fillerPer100 * 100).rounded() / 100,
             wordsPerMinute:     (wpm   * 10).rounded()    / 10,
             meanSentenceLength: (msl   * 100).rounded()   / 100,
-            pronounNounRatio:   (pnr   * 10000).rounded() / 10000
+            pronounNounRatio:   (pnr   * 10000).rounded() / 10000,
+            pausesPerMinute:    pauseRate.map { ($0 * 10).rounded() / 10 },
+            meanPauseSeconds:   pauses.map { ($0.meanSeconds * 100).rounded() / 100 }
         )
     }
 }
@@ -208,6 +218,7 @@ extension Fingerprint {
 enum FingerprintFeature: String, CaseIterable, Identifiable {
     case typeTokenRatio, movingAverageTTR, vagueLanguageIndex, fillerRate
     case wordsPerMinute, meanSentenceLength, pronounNounRatio
+    case pausesPerMinute, meanPauseSeconds
 
     var id: String { rawValue }
 
@@ -220,6 +231,8 @@ enum FingerprintFeature: String, CaseIterable, Identifiable {
         case .wordsPerMinute:     return "Speaking Pace"
         case .meanSentenceLength: return "Sentence Length"
         case .pronounNounRatio:   return "Pronouns vs Nouns"
+        case .pausesPerMinute:    return "Pauses"
+        case .meanPauseSeconds:   return "Pause Length"
         }
     }
 
@@ -228,11 +241,14 @@ enum FingerprintFeature: String, CaseIterable, Identifiable {
         case .fillerRate:         return "per 100 words"
         case .wordsPerMinute:     return "words/min"
         case .meanSentenceLength: return "words"
+        case .pausesPerMinute:    return "per minute"
+        case .meanPauseSeconds:   return "seconds"
         default:                  return ""
         }
     }
 
-    func value(in f: Fingerprint) -> Double {
+    /// nil when this check-in has no measurement for the feature (pauses on older check-ins).
+    func value(in f: Fingerprint) -> Double? {
         switch self {
         case .typeTokenRatio:     return f.typeTokenRatio
         case .movingAverageTTR:   return f.movingAverageTTR
@@ -241,6 +257,8 @@ enum FingerprintFeature: String, CaseIterable, Identifiable {
         case .wordsPerMinute:     return f.wordsPerMinute
         case .meanSentenceLength: return f.meanSentenceLength
         case .pronounNounRatio:   return f.pronounNounRatio
+        case .pausesPerMinute:    return f.pausesPerMinute
+        case .meanPauseSeconds:   return f.meanPauseSeconds
         }
     }
 }
@@ -261,6 +279,18 @@ struct FingerprintPoint: Identifiable {
     var inBaseline: Bool = false
 }
 
+/// The parts of a Session the drift analysis needs, copied out so they can cross threads.
+struct SessionSnapshot {
+    let date: Date
+    let transcript: String
+    let duration: Double
+    let pauses: PauseStats?
+
+    init(_ s: Session) {
+        date = s.date; transcript = s.transcript; duration = s.duration; pauses = s.pauseStats
+    }
+}
+
 struct DriftAnalysis {
     static let minCheckIns      = 3      // baseline appears after this many
     static let minWords         = 15     // shorter transcripts are too noisy to score
@@ -276,23 +306,39 @@ struct DriftAnalysis {
     var hasBaseline: Bool { !baseline.isEmpty }
     /// Word variety is measured twice (whole transcript and 50-word chunks) and the two
     /// are identical for transcripts under 50 words, so they count as one signal.
+    /// Pause rate and pause length are likewise two views of the same behaviour.
     var signalCount: Int {
-        let both = shifted.contains { $0.feature == .typeTokenRatio }
-            && shifted.contains { $0.feature == .movingAverageTTR }
-        return shifted.count - (both ? 1 : 0)
+        Set(shifted.map { shift -> String in
+            switch shift.feature {
+            case .typeTokenRatio, .movingAverageTTR: return "variety"
+            case .pausesPerMinute, .meanPauseSeconds: return "pauses"
+            default: return shift.feature.rawValue
+            }
+        }).count
+    }
+
+    /// Features that have at least one measurement, so a chart is worth drawing.
+    var availableFeatures: [FingerprintFeature] {
+        FingerprintFeature.allCases.filter { f in points.contains { f.value(in: $0.fingerprint) != nil } }
     }
     var isFlagged: Bool { signalCount >= Self.featuresNeeded }
 
     /// - Parameter sessions: voice check-ins in any order.
     init(sessions: [Session]) {
-        let usable = sessions
+        self.init(snapshots: sessions.map(SessionSnapshot.init))
+    }
+
+    /// Plain-value form, so the (slow) analysis can run off the main thread.
+    init(snapshots: [SessionSnapshot]) {
+        let usable = snapshots
             .sorted { $0.date < $1.date }
             .filter { Fingerprint.wordCount($0.transcript) >= Self.minWords }
 
         points = usable.map {
             FingerprintPoint(date: $0.date,
                              fingerprint: Fingerprint.analyze(transcript: $0.transcript,
-                                                              durationSeconds: $0.duration))
+                                                              durationSeconds: $0.duration,
+                                                              pauses: $0.pauses))
         }
         guard points.count >= Self.minCheckIns else { return }
 
@@ -303,7 +349,9 @@ struct DriftAnalysis {
         let window = points.prefix(baselineSize)
 
         for feature in FingerprintFeature.allCases {
-            let values = window.map { feature.value(in: $0.fingerprint) }
+            let values = window.compactMap { feature.value(in: $0.fingerprint) }
+            // Pause features need their own 3 measurements; older check-ins don't have any.
+            guard values.count >= Self.minCheckIns else { continue }
             let mean = values.reduce(0, +) / Double(values.count)
             let variance = values.map { ($0 - mean) * ($0 - mean) }.reduce(0, +) / Double(values.count - 1)
             let sd = variance.squareRoot()
@@ -314,7 +362,9 @@ struct DriftAnalysis {
         for i in points.indices {
             points[i].inBaseline = i < baselineSize
             for (feature, b) in baseline {
-                points[i].zScores[feature] = (feature.value(in: points[i].fingerprint) - b.mean) / b.sd
+                if let v = feature.value(in: points[i].fingerprint) {
+                    points[i].zScores[feature] = (v - b.mean) / b.sd
+                }
             }
         }
 

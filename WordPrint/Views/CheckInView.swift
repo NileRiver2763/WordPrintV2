@@ -14,12 +14,12 @@ private let moods: [MoodOption] = [
     MoodOption(emoji: "😄", label: "Great", color: Color(red: 0.10, green: 0.73, blue: 0.53)),
     MoodOption(emoji: "🙂", label: "Good",  color: Color(red: 0.15, green: 0.52, blue: 0.83)),
     MoodOption(emoji: "😐", label: "Okay",  color: Color(red: 0.91, green: 0.52, blue: 0.14)),
-    MoodOption(emoji: "😔", label: "Low",   color: Color(red: 0.42, green: 0.25, blue: 0.82)),
-    MoodOption(emoji: "😴", label: "Tired", color: Color(red: 0.58, green: 0.28, blue: 0.58)),
+    MoodOption(emoji: "😔", label: "Low",   color: Color(red: 0.25, green: 0.45, blue: 0.75)),
+    MoodOption(emoji: "😴", label: "Tired", color: Color(red: 0.55, green: 0.55, blue: 0.10)),
 ]
 
-private let headerTop    = Color(red: 0.27, green: 0.24, blue: 0.80)
-private let headerBottom = Color(red: 0.56, green: 0.27, blue: 0.68)
+private let headerTop    = Color(red: 0.08, green: 0.58, blue: 0.22)
+private let headerBottom = Color(red: 0.95, green: 0.68, blue: 0.0)
 
 struct CheckInView: View {
     @Environment(\.modelContext) private var modelContext
@@ -118,7 +118,7 @@ struct CheckInView: View {
     private var noteSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Add a note (optional)", systemImage: "pencil.line")
-                .font(.title3.bold())
+                .font(.system(.title3, design: .rounded, weight: .bold))
 
             TextField("What's on your mind?", text: $note, axis: .vertical)
                 .lineLimit(3...5)
@@ -137,7 +137,7 @@ struct CheckInView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.title2)
                 Text(alreadyCheckedInToday ? "Update Today's Check-in" : "Save Check-in")
-                    .font(.title2.bold())
+                    .font(.system(.title2, design: .rounded, weight: .heavy))
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 22)
@@ -239,7 +239,7 @@ struct ConfirmationToast: View {
             HStack(spacing: 10) {
                 Text(emoji).font(.title2)
                 Text(message)
-                    .font(.title3.bold())
+                    .font(.system(.title3, design: .rounded, weight: .bold))
             }
             .padding(.horizontal, 26)
             .padding(.vertical, 15)

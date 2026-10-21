@@ -1,7 +1,7 @@
 import SwiftUI
 
-private let aboutPrimary = Color(red: 0.27, green: 0.24, blue: 0.80)
-private let aboutAccent  = Color(red: 0.56, green: 0.27, blue: 0.68)
+private let aboutPrimary = Color(red: 0.08, green: 0.58, blue: 0.22)
+private let aboutAccent  = Color(red: 0.95, green: 0.68, blue: 0.0)
 
 //Author: Neil Voore
 
@@ -9,56 +9,42 @@ struct AboutView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
-                    appHeader
+                VStack(spacing: 16) {
+                    Color.clear.frame(height: 0)
+
+                    NeilbotBubble(showsAvatar: false) {
+                        Text("Hi, I'm Neilbot!")
+                            .font(.system(.title, design: .rounded, weight: .heavy))
+                            .accessibilityAddTraits(.isHeader)
+                        Text("WordPrint is your daily check-in. Talk for a minute and I'll keep track of how you sound over time.")
+                            .font(.system(.title3, design: .rounded, weight: .bold))
+                            .foregroundStyle(Color(red: 0.40, green: 0.62, blue: 0.0))
+                    }
+                    .padding(.horizontal, 16)
+
                     featureCards
+
+                    ReminderRow()
+                        .padding(18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.secondarySystemGroupedBackground))
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                        .chunkyBorder(20)
+                        .padding(.horizontal, 16)
+
                     tipsCard
+
                     Text("Version 1.0  •  Made with care")
-                        .font(.footnote)
+                        .font(.system(.footnote, design: .rounded, weight: .semibold))
                         .foregroundStyle(.tertiary)
                         .padding(.bottom, 8)
                 }
-                .padding(.top, 12)
-                .padding(.bottom, 40)
+                .padding(.bottom, 24)
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("About")
-            .navigationBarTitleDisplayMode(.large)
+            .navigationBarTitleDisplayMode(.inline)
         }
-    }
-
-    // MARK: - App Header
-
-    private var appHeader: some View {
-        VStack(spacing: 18) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 34)
-                    .fill(LinearGradient(colors: [aboutPrimary, aboutAccent],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing))
-                    .frame(width: 120, height: 120)
-                    .shadow(color: aboutPrimary.opacity(0.50), radius: 18, y: 9)
-
-                Image(systemName: "heart.text.square.fill")
-                    .font(.system(size: 56))
-                    .foregroundStyle(.white)
-            }
-
-            VStack(spacing: 5) {
-                Text("WordPrint")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-
-                Text("Daily Wellness Check-in")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 30)
-        .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 28))
-        .padding(.horizontal, 16)
-        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
     }
 
     // MARK: - Feature Cards
@@ -67,21 +53,21 @@ struct AboutView: View {
         VStack(spacing: 14) {
             InfoCard(
                 icon: "checkmark.circle.fill",
-                iconColor: Color(red: 0.10, green: 0.73, blue: 0.53),
-                title: "Check In Every Day",
-                content: "Take a moment each morning to record how you're feeling. It only takes a few seconds."
+                iconColor: Chunky.green,
+                title: "Check in every day",
+                content: "Pick a face, press Speak, and talk. It only takes a minute."
             )
             InfoCard(
                 icon: "chart.bar.fill",
-                iconColor: aboutPrimary,
-                title: "Watch Your Trends",
-                content: "See patterns in your mood over time. Noticing trends can help you and your doctor understand your well-being."
+                iconColor: aboutAccent,
+                title: "Watch your trends",
+                content: "See patterns over time. They can help you and your doctor."
             )
             InfoCard(
                 icon: "lock.shield.fill",
-                iconColor: Color(red: 0.15, green: 0.52, blue: 0.83),
-                title: "Private & Secure",
-                content: "All your data stays on your device. Nothing is shared or sent anywhere."
+                iconColor: Color(red: 0.25, green: 0.45, blue: 0.75),
+                title: "Private & secure",
+                content: "Everything stays on your phone unless you choose to share it."
             )
         }
         .padding(.horizontal, 16)
@@ -90,19 +76,20 @@ struct AboutView: View {
     // MARK: - Tips
 
     private var tipsCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Tips for Getting Started")
-                .font(.title2.bold())
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Tips")
+                .font(.system(.title2, design: .rounded, weight: .heavy))
 
-            TipRow(number: "1", text: "Try to check in at the same time each day — morning works well for most people.")
-            TipRow(number: "2", text: "Be honest. There are no wrong answers. How you feel is always valid.")
-            TipRow(number: "3", text: "Add a short note if something specific is affecting your mood.")
+            TipRow(number: "1", text: "Check in at the same time each day. Morning works well.")
+            TipRow(number: "2", text: "Be honest. There are no wrong answers.")
+            TipRow(number: "3", text: "Talk about anything: your day, a memory, what you see.")
         }
-        .padding(22)
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .chunkyBorder(20)
         .padding(.horizontal, 16)
-        .shadow(color: .black.opacity(0.06), radius: 8, y: 4)
     }
 }
 
@@ -117,29 +104,30 @@ struct InfoCard: View {
     var body: some View {
         HStack(alignment: .top, spacing: 18) {
             ZStack {
-                RoundedRectangle(cornerRadius: 15)
-                    .fill(iconColor.opacity(0.14))
-                    .frame(width: 54, height: 54)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(iconColor)
+                    .frame(width: 52, height: 52)
 
                 Image(systemName: icon)
-                    .font(.title2)
-                    .foregroundStyle(iconColor)
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.white)
             }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
-                    .font(.title3.bold())
+                    .font(.system(.title3, design: .rounded, weight: .bold))
 
                 Text(content)
-                    .font(.body)
+                    .font(.system(.body, design: .rounded, weight: .medium))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(20)
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 22))
-        .shadow(color: .black.opacity(0.05), radius: 6, y: 3)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .chunkyBorder(20)
     }
 }
 
@@ -152,19 +140,19 @@ struct TipRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             Text(number)
-                .font(.headline.bold())
+                .font(.system(.headline, design: .rounded, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
                 .background(
-                    LinearGradient(colors: [Color(red: 0.27, green: 0.24, blue: 0.80),
-                                            Color(red: 0.56, green: 0.27, blue: 0.68)],
+                    LinearGradient(colors: [Color(red: 0.08, green: 0.58, blue: 0.22),
+                                            Color(red: 0.95, green: 0.68, blue: 0.0)],
                                    startPoint: .topLeading,
                                    endPoint: .bottomTrailing)
                 )
                 .clipShape(Circle())
 
             Text(text)
-                .font(.body)
+                .font(.system(.body, design: .rounded, weight: .medium))
                 .fixedSize(horizontal: false, vertical: true)
         }
     }

@@ -63,6 +63,20 @@ final class SpeechRecognizer: ObservableObject {
     // AVAudioEngine owns the audio graph; inputNode is its microphone tap point.
     private let audioEngine = AVAudioEngine()
 
+    // Stopping the engine and deactivating the audio session can block for a long time,
+    // so all engine/session work runs here, never on the main thread while the UI waits.
+    private let audioQueue = DispatchQueue(label: "wordprint.audio")
+
+    // Pause detection runs on the audio thread, so it is guarded by a lock.
+    private let pauseLock = NSLock()
+    private var pauseDetector = PauseDetector()
+
+    /// Pauses heard so far in this recording.
+    var pauseStats: PauseStats {
+        pauseLock.lock(); defer { pauseLock.unlock() }
+        return pauseDetector.stats
+    }
+
     init() {
         // Locale.current picks the user's device language automatically.
         recognizer = SFSpeechRecognizer(locale: .current)
@@ -116,34 +130,32 @@ final class SpeechRecognizer: ObservableObject {
         lastPartial = ""
         errorMessage = nil
         consecutiveFailures = 0
+        pauseLock.lock(); pauseDetector = PauseDetector(); pauseLock.unlock()
 
-        // Step 1 — Configure the audio session.
-        //   .record      = mic-only, no playback mixing
-        //   .measurement = no system audio processing (echo cancel, AGC) applied,
-        //                  giving the cleanest signal for speech recognition
-        //   .duckOthers  = temporarily lower background audio while we record
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.record, mode: .measurement, options: .duckOthers)
-        try session.setActive(true, options: .notifyOthersOnDeactivation)
+        // Steps 1–3 run on the audio queue, which also waits for any earlier teardown.
+        //   Session: .record + .measurement (no echo cancel / AGC), duckOthers.
+        //   Tap: routes audio through self?.recognitionRequest so the request can be swapped
+        //   after a pause without restarting the engine.
+        try audioQueue.sync {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+            try session.setActive(true, options: .notifyOthersOnDeactivation)
 
-        // Step 2 — Tap the microphone.
-        //   The tap routes audio through self?.recognitionRequest so we can swap
-        //   the request when iOS finalizes a segment after a pause, without
-        //   stopping or restarting the audio engine.
-        let inputNode = audioEngine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.recognitionRequest?.append(buffer)
-        }
+            let inputNode = audioEngine.inputNode
+            let format = inputNode.outputFormat(forBus: 0)
+            inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+                self?.recognitionRequest?.append(buffer)
+                self?.measureLevel(of: buffer)
+            }
 
-        // Step 3 — Start the audio engine.
-        audioEngine.prepare()
-        do {
-            try audioEngine.start()
-        } catch {
-            // Remove the tap, otherwise the next attempt crashes installing a second one.
-            inputNode.removeTap(onBus: 0)
-            throw SRError.audioEngineFailure(error)
+            audioEngine.prepare()
+            do {
+                try audioEngine.start()
+            } catch {
+                // Remove the tap, otherwise the next attempt crashes installing a second one.
+                inputNode.removeTap(onBus: 0)
+                throw SRError.audioEngineFailure(error)
+            }
         }
 
         // Step 4 — Start the first recognition task. Subsequent segments after
@@ -151,6 +163,20 @@ final class SpeechRecognizer: ObservableObject {
         beginRecognitionTask()
 
         isRecording = true
+    }
+
+    // Loudness of one buffer (RMS in dBFS) → pause detector. Runs on the audio thread.
+    private func measureLevel(of buffer: AVAudioPCMBuffer) {
+        guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0, buffer.format.sampleRate > 0 else { return }
+        let n = Int(buffer.frameLength)
+        var sum: Float = 0
+        for i in 0..<n { sum += samples[i] * samples[i] }
+        let rms = (sum / Float(n)).squareRoot()
+        let db = 20 * log10(Double(max(rms, 1e-5)))
+        let seconds = Double(n) / buffer.format.sampleRate
+        pauseLock.lock()
+        pauseDetector.add(levelDB: db, duration: seconds)
+        pauseLock.unlock()
     }
 
     // Creates a fresh SFSpeechAudioBufferRecognitionRequest and recognition task.
@@ -267,15 +293,17 @@ final class SpeechRecognizer: ObservableObject {
         // Telling the request endAudio() lets the recognizer flush its final hypothesis.
         recognitionRequest?.endAudio()
 
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
-
         recognitionRequest = nil
         recognitionTask?.cancel()
         recognitionTask = nil
         isRecording = false
 
-        try? AVAudioSession.sharedInstance()
-            .setActive(false, options: .notifyOthersOnDeactivation)
+        let engine = audioEngine
+        audioQueue.async {
+            engine.stop()
+            engine.inputNode.removeTap(onBus: 0)
+            try? AVAudioSession.sharedInstance()
+                .setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 }

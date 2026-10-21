@@ -14,6 +14,8 @@ extension FingerprintFeature {
         case .wordsPerMinute:     return "How fast you speak."
         case .meanSentenceLength: return "The average number of words in a sentence."
         case .pronounNounRatio:   return "How often pronouns (\"it\", \"that\") are used compared with naming things directly."
+        case .pausesPerMinute:    return "How many pauses of half a second or longer happen mid-speech, per minute. Measured from the microphone's loudness, so it is approximate."
+        case .meanPauseSeconds:   return "How long those pauses last on average, in seconds."
         }
     }
 }
@@ -43,7 +45,8 @@ enum ReportNotes {
         return FingerprintFeature.allCases.compactMap { feature in
             guard let b = drift.baseline[feature], let z = latest.zScores[feature] else { return nil }
             let unit = feature.unit.isEmpty ? "" : " \(feature.unit)"
-            let text = "Latest \(format(feature.value(in: latest.fingerprint)))\(unit), "
+            guard let latestValue = feature.value(in: latest.fingerprint) else { return nil }
+            let text = "Latest \(format(latestValue))\(unit), "
                 + "your usual is about \(format(b.mean))\(unit): \(status(z: z))."
             return FeatureNote(feature: feature, text: text)
         }
@@ -63,6 +66,23 @@ enum ReportNotes {
     static let howToRead = "Each small chart shows one measurement over time. The shaded band is the person's own usual range, taken from their first check-ins; the dashed line is their average. Orange dots are outside that range."
 
     static let disclaimer = "WordPrint does not diagnose any condition. It only tracks how a person's speech changes compared with their own earlier check-ins. All data was recorded and analysed on the person's phone."
+}
+
+/// Bright sunshine-orange "Share with doctor" button face.
+struct SunnyShareLabel: View {
+    var body: some View {
+        Label("Share with doctor", systemImage: "square.and.arrow.up")
+            .font(.system(size: 21, weight: .heavy, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .frame(height: 60)
+    }
+}
+
+enum ReportColors {
+    static let indigo = Color(red: 0.08, green: 0.58, blue: 0.22)
+    static let purple = Color(red: 0.95, green: 0.68, blue: 0.0)
+    static let sun    = Color(red: 1.0, green: 0.78, blue: 0.1)
 }
 
 // ── The one-page report ───────────────────────
@@ -86,22 +106,29 @@ struct DoctorReportView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             header
-            Divider()
             Text(ReportNotes.summary(for: drift))
                 .font(.system(size: 11))
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                ForEach(FingerprintFeature.allCases) { feature in
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(ReportColors.sun.opacity(0.22))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: drift.availableFeatures.count > 8 ? 5 : 4), spacing: 8) {
+                ForEach(drift.availableFeatures) { feature in
                     FeatureChart(feature: feature, drift: drift, compact: true)
                 }
             }
             Text(ReportNotes.howToRead)
                 .font(.system(size: 8))
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 5) {
                 Text("What each measurement means").font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(ReportColors.indigo)
                 ForEach(ReportNotes.featureNotes(for: drift)) { note in
                     VStack(alignment: .leading, spacing: 0) {
                         Text(note.feature.title).font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(ReportColors.purple)
                         Text(note.feature.plainDescription + " " + note.text)
                             .font(.system(size: 9))
                             .foregroundStyle(.secondary)
@@ -115,7 +142,7 @@ struct DoctorReportView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.gray.opacity(0.12))
+                .background(ReportColors.sun.opacity(0.22))
                 .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .padding(36)
@@ -126,17 +153,26 @@ struct DoctorReportView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .center, spacing: 12) {
+            Text("☀️").font(.system(size: 34))
             VStack(alignment: .leading, spacing: 3) {
                 Text("WordPrint speech summary").font(.system(size: 20, weight: .bold))
                 Text(displayName.isEmpty ? "Name not provided" : displayName).font(.system(size: 13, weight: .semibold))
                 Text("Check-ins: \(rangeText)  •  \(drift.points.count) voice check-ins")
-                    .font(.system(size: 10)).foregroundStyle(.secondary)
+                    .font(.system(size: 10)).opacity(0.9)
             }
             Spacer()
             Text("Prepared \(generated.formatted(date: .abbreviated, time: .omitted))")
-                .font(.system(size: 9)).foregroundStyle(.secondary)
+                .font(.system(size: 9)).opacity(0.9)
         }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            LinearGradient(colors: [ReportColors.indigo, ReportColors.purple],
+                           startPoint: .leading, endPoint: .trailing)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 
@@ -180,6 +216,18 @@ struct ShareWithDoctorSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
+                    HStack(spacing: 12) {
+                        NeilbotAvatar(size: 64)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Ready to share! ☀️")
+                                .font(.system(size: 24, weight: .heavy, design: .rounded))
+                                .foregroundStyle(ReportColors.indigo)
+                            Text("Here is your summary for the doctor.")
+                                .font(.title3)
+                        }
+                        Spacer(minLength: 0)
+                    }
+
                     TextField("Your name (shown on the summary)", text: $name)
                         .textContentType(.name)
                         .textFieldStyle(.roundedBorder)
@@ -195,14 +243,9 @@ struct ShareWithDoctorSheet: View {
 
                     if let pdfURL {
                         ShareLink(item: pdfURL, preview: SharePreview("WordPrint summary", image: Image(systemName: "doc.richtext"))) {
-                            Label("Share with doctor", systemImage: "square.and.arrow.up")
-                                .font(.system(size: 20, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 56)
-                                .background(Color(red: 0.27, green: 0.24, blue: 0.80))
-                                .clipShape(RoundedRectangle(cornerRadius: 18))
+                            SunnyShareLabel()
                         }
+                        .buttonStyle(ChunkyButtonStyle(face: Chunky.orange, lip: Chunky.orangeLip, radius: 20, depth: 6))
                     } else {
                         ProgressView("Preparing PDF…")
                     }
@@ -214,6 +257,11 @@ struct ShareWithDoctorSheet: View {
                 }
                 .padding(20)
             }
+            .background(
+                LinearGradient(colors: [ReportColors.sun.opacity(0.35), Color(.systemBackground)],
+                               startPoint: .top, endPoint: .center)
+                    .ignoresSafeArea()
+            )
             .navigationTitle("Share with doctor")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
